@@ -4,18 +4,21 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
-    { name = "Ricky Chu", email = "rickywai77@gmail.com" }
+    { name = "Redactix Contributors" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.9"
 dependencies = []
 
 [tool.maturin]
 module-name = "redactix._core"
 python-packages = ["redactix"]
-python-source = "src"
+python-source = "python"
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "python/**/*.py" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+
+[tool.pytest.ini_options]
+pythonpath = ["python"]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
