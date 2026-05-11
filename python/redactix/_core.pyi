@@ -1,0 +1,16 @@
+from typing import Literal
+
+RedactionMode = Literal["placeholder", "mask"]
+
+class Redactor:
+    def __init__(
+        self,
+        custom_patterns: dict[str, str] | None = None,
+        placeholders: dict[str, str] | None = None,
+        mode: RedactionMode = "placeholder",
+    ) -> None: ...
+    def detect(self, text: str) -> list[dict]: ...
+    def redact(self, text: str, mode: RedactionMode | None = None) -> str: ...
+
+def detect(text: str) -> list[dict]: ...
+def redact(text: str, mode: RedactionMode = "placeholder") -> str: ...

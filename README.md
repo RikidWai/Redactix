@@ -1,106 +1,52 @@
 # Redactix
 
-Rust-based Python library built with `uv`, `maturin`, and PyO3.
+Redactix is a lightweight Rust-backed Python library for detecting and redacting common PII in text.
 
-## Requirements
+## Features
 
-- Python managed by `uv`
-- Rust toolchain with `cargo` and `rustc`
+- Detects email addresses, phone numbers, and Luhn-valid credit card numbers.
+- Redacts with placeholders by default: `{{EMAIL}}`, `{{PHONE}}`, `{{CREDIT_CARD}}`.
+- Supports mask redaction with one `*` per detected Python character.
+- Provides a configurable `Redactor` for custom regex patterns, placeholder overrides, and default redaction mode.
 
-Check the tools:
+## Usage
 
-```bash
-uv --version
-cargo --version
-rustc --version
+```python
+import redactix
+
+text = "Contact me at alex@example.com or +1 415-555-2671."
+
+matches = redactix.detect(text)
+redacted = redactix.redact(text)
+masked = redactix.redact(text, mode="mask")
 ```
 
-## Setup
+```python
+redactor = redactix.Redactor(
+    custom_patterns={"name": r"\bJane Doe\b"},
+    placeholders={"name": "{{PERSON}}"},
+)
 
-Create or sync the project environment:
-
-```bash
-uv sync
+redactor.redact("Jane Doe emailed alex@example.com")
+# "{{PERSON}} emailed {{EMAIL}}"
 ```
 
-Activate the virtual environment:
+## Development
 
-```bash
-source .venv/bin/activate
-```
-
-On Windows PowerShell:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-## Run
-
-Import the package through `uv`:
-
-```bash
-uv run python -c "import redactix; print(redactix)"
-```
-
-Or, after activating the environment:
-
-```bash
-python -c "import redactix; print(redactix)"
-```
-
-## Develop With Maturin
-
-Build and install the Rust extension into the active virtual environment:
+Build and install the Rust extension into the local environment:
 
 ```bash
 uv run maturin develop
 ```
 
-For a release-style local install:
+Run tests:
 
 ```bash
-uv run maturin develop --release
+pytest
 ```
 
-## Build
-
-Build Python package artifacts:
-
-```bash
-uv build
-```
-
-Or build directly with maturin:
+Build a wheel:
 
 ```bash
 uv run maturin build --release
-```
-
-Artifacts are written to `dist/` or `target/wheels/` depending on the command.
-
-## Publish
-
-Publish with maturin:
-
-```bash
-uv run maturin publish
-```
-
-Publish to TestPyPI first:
-
-```bash
-uv run maturin publish --repository testpypi
-```
-
-If you prefer using a token explicitly:
-
-```bash
-MATURIN_PYPI_TOKEN=pypi-... uv run maturin publish
-```
-
-For TestPyPI:
-
-```bash
-MATURIN_PYPI_TOKEN=pypi-... uv run maturin publish --repository testpypi
 ```
