@@ -20,5 +20,5 @@ pub fn is_valid(digits: &str) -> bool {
         double_digit = !double_digit;
     }
 
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }

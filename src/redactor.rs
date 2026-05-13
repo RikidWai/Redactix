@@ -27,7 +27,7 @@ pub enum BuiltinPattern {
 
 struct CustomPattern {
     type_name: String,
-    pattern: String,
+    regex: Py<PyAny>,
 }
 
 enum ActivePattern {
@@ -64,18 +64,14 @@ impl Redactor {
 
         if let Some(custom_patterns) = custom_patterns {
             for (type_name, pattern) in custom_patterns {
-                if type_name.trim().is_empty() {
-                    return Err(PyValueError::new_err(
-                        "custom pattern names cannot be empty",
-                    ));
-                }
                 if contains_pattern(&patterns, &type_name) {
                     return Err(PyValueError::new_err(format!(
                         "pattern '{type_name}' already exists"
                     )));
                 }
-                validate_regex(py, &type_name, &pattern)?;
-                patterns.push(ActivePattern::Custom(CustomPattern { type_name, pattern }));
+                patterns.push(ActivePattern::Custom(CustomPattern::new(
+                    py, type_name, pattern,
+                )?));
             }
         }
 
@@ -90,24 +86,7 @@ impl Redactor {
         let mut matches = Vec::new();
 
         for pattern in &self.patterns {
-            match pattern {
-                ActivePattern::Builtin(builtin_pattern) => {
-                    matches.extend(detectors::detect_builtin(
-                        text,
-                        &[*builtin_pattern],
-                        &self.placeholders,
-                    ));
-                }
-                ActivePattern::Custom(custom_pattern) => {
-                    matches.extend(detectors::detect_with_python_regex(
-                        py,
-                        &custom_pattern.type_name,
-                        &custom_pattern.pattern,
-                        text,
-                        &self.placeholders,
-                    )?);
-                }
-            }
+            matches.extend(pattern.detect(text, py, &self.placeholders)?);
         }
 
         Ok(detectors::sort_and_remove_overlaps(matches))
@@ -132,9 +111,8 @@ impl Redactor {
                 "pattern '{type_name}' already exists"
             )));
         }
-        validate_regex(py, &type_name, &pattern)?;
-        self.patterns
-            .push(ActivePattern::Custom(CustomPattern { type_name, pattern }));
+        let custom_pattern = CustomPattern::new(py, type_name, pattern)?;
+        self.patterns.push(ActivePattern::Custom(custom_pattern));
         Ok(())
     }
 
@@ -150,8 +128,7 @@ impl Redactor {
                 "pattern '{type_name}' does not exist"
             )));
         };
-        validate_regex(py, &type_name, &pattern)?;
-        self.patterns[index] = ActivePattern::Custom(CustomPattern { type_name, pattern });
+        self.patterns[index] = ActivePattern::Custom(CustomPattern::new(py, type_name, pattern)?);
         Ok(())
     }
 
@@ -164,6 +141,47 @@ impl Redactor {
         };
         self.patterns.remove(index);
         Ok(())
+    }
+}
+
+impl CustomPattern {
+    fn new(py: Python<'_>, type_name: String, pattern: String) -> PyResult<Self> {
+        validate_custom_pattern_name(&type_name)?;
+        Ok(Self {
+            regex: compile_regex(py, &type_name, &pattern)?,
+            type_name,
+        })
+    }
+}
+
+impl ActivePattern {
+    fn type_name(&self) -> &str {
+        match self {
+            ActivePattern::Builtin(builtin_pattern) => builtin_pattern.name(),
+            ActivePattern::Custom(custom_pattern) => &custom_pattern.type_name,
+        }
+    }
+
+    fn detect(
+        &self,
+        text: &str,
+        py: Python<'_>,
+        placeholders: &HashMap<String, String>,
+    ) -> PyResult<Vec<PiiMatch>> {
+        match self {
+            ActivePattern::Builtin(builtin_pattern) => Ok(detectors::detect_builtin_pattern(
+                text,
+                *builtin_pattern,
+                placeholders,
+            )),
+            ActivePattern::Custom(custom_pattern) => detectors::detect_with_python_regex(
+                py,
+                &custom_pattern.type_name,
+                &custom_pattern.regex,
+                text,
+                placeholders,
+            ),
+        }
     }
 }
 
@@ -248,16 +266,15 @@ fn contains_pattern(patterns: &[ActivePattern], type_name: &str) -> bool {
 }
 
 fn find_pattern_index(patterns: &[ActivePattern], type_name: &str) -> Option<usize> {
-    patterns.iter().position(|pattern| match pattern {
-        ActivePattern::Builtin(builtin_pattern) => builtin_pattern.name() == type_name,
-        ActivePattern::Custom(custom_pattern) => custom_pattern.type_name == type_name,
-    })
+    patterns
+        .iter()
+        .position(|pattern| pattern.type_name() == type_name)
 }
 
-fn validate_regex(py: Python<'_>, type_name: &str, pattern: &str) -> PyResult<()> {
+fn compile_regex(py: Python<'_>, type_name: &str, pattern: &str) -> PyResult<Py<PyAny>> {
     let re = py.import("re")?;
     re.call_method1("compile", (pattern,))
-        .map(|_| ())
+        .map(|compiled| compiled.unbind())
         .map_err(|err| {
             PyValueError::new_err(format!(
                 "invalid custom regex for '{type_name}': {}",

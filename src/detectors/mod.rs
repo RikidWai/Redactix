@@ -10,20 +10,16 @@ use regex::Regex;
 use crate::redactor::{BuiltinPattern, replacement_for};
 use crate::types::PiiMatch;
 
-pub fn detect_builtin(
+pub fn detect_builtin_pattern(
     text: &str,
-    patterns: &[BuiltinPattern],
+    pattern: BuiltinPattern,
     placeholders: &HashMap<String, String>,
 ) -> Vec<PiiMatch> {
-    let mut matches = Vec::new();
-    for pattern in patterns {
-        match pattern {
-            BuiltinPattern::Email => matches.extend(email::detect(text, placeholders)),
-            BuiltinPattern::Phone => matches.extend(phone::detect(text, placeholders)),
-            BuiltinPattern::CreditCard => matches.extend(credit_card::detect(text, placeholders)),
-        }
+    match pattern {
+        BuiltinPattern::Email => email::detect(text, placeholders),
+        BuiltinPattern::Phone => phone::detect(text, placeholders),
+        BuiltinPattern::CreditCard => credit_card::detect(text, placeholders),
     }
-    matches
 }
 
 pub fn detect_with_rust_regex(
@@ -67,13 +63,11 @@ pub fn pii_match_from_byte_span(
 pub fn detect_with_python_regex(
     py: Python<'_>,
     type_name: &str,
-    pattern: &str,
+    regex: &Py<PyAny>,
     text: &str,
     placeholders: &HashMap<String, String>,
 ) -> PyResult<Vec<PiiMatch>> {
-    let re = py.import("re")?;
-    let compiled = re.call_method1("compile", (pattern,))?;
-    let iterator = compiled.call_method1("finditer", (text,))?;
+    let iterator = regex.bind(py).call_method1("finditer", (text,))?;
     let mut matches = Vec::new();
 
     for match_obj in iterator.try_iter()? {
