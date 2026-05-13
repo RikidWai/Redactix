@@ -13,7 +13,7 @@ use redactor::{RedactionMode, Redactor as InnerRedactor, validate_mode};
 
 #[pyfunction]
 fn detect(py: Python<'_>, text: &str) -> PyResult<Vec<Py<PyAny>>> {
-    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder)?;
+    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder, None)?;
     redactor.detect_py(py, text)
 }
 
@@ -21,7 +21,7 @@ fn detect(py: Python<'_>, text: &str) -> PyResult<Vec<Py<PyAny>>> {
 #[pyo3(signature = (text, mode = "placeholder"))]
 fn redact(py: Python<'_>, text: &str, mode: &str) -> PyResult<String> {
     let mode = validate_mode(mode)?;
-    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder)?;
+    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder, None)?;
     let matches = redactor.detect(text, py)?;
     apply_redaction(text, &matches, mode)
 }
@@ -34,16 +34,17 @@ struct PyRedactor {
 #[pymethods]
 impl PyRedactor {
     #[new]
-    #[pyo3(signature = (custom_patterns = None, placeholders = None, mode = "placeholder"))]
+    #[pyo3(signature = (custom_patterns = None, placeholders = None, mode = "placeholder", patterns = None))]
     fn new(
         py: Python<'_>,
         custom_patterns: Option<HashMap<String, String>>,
         placeholders: Option<HashMap<String, String>>,
         mode: &str,
+        patterns: Option<Vec<String>>,
     ) -> PyResult<Self> {
         let mode = validate_mode(mode)?;
         Ok(Self {
-            inner: InnerRedactor::new(py, custom_patterns, placeholders, mode)?,
+            inner: InnerRedactor::new(py, custom_patterns, placeholders, mode, patterns)?,
         })
     }
 

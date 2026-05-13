@@ -7,6 +7,28 @@ def test_custom_name_pattern():
     assert redactor.redact("Jane Doe emailed alex@example.com") == "{{NAME}} emailed {{EMAIL}}"
 
 
+def test_select_builtin_patterns():
+    redactor = redactix.Redactor(patterns=["email"])
+    text = "Email alex@example.com or call +1 415-555-2671. Card: 4111 1111 1111 1111."
+    assert redactor.detect(text) == [
+        {
+            "type": "email",
+            "start": 6,
+            "end": 22,
+            "text": "alex@example.com",
+            "replacement": "{{EMAIL}}",
+        }
+    ]
+
+
+def test_empty_builtin_patterns_allows_custom_only_redactor():
+    redactor = redactix.Redactor(
+        custom_patterns={"name": r"\bJane Doe\b"},
+        patterns=[],
+    )
+    assert redactor.redact("Jane Doe emailed alex@example.com") == "{{NAME}} emailed alex@example.com"
+
+
 def test_custom_name_pattern_mask_mode():
     redactor = redactix.Redactor(custom_patterns={"name": r"\bJane Doe\b"})
     assert redactor.redact("Jane Doe emailed alex@example.com", mode="mask") == "******** emailed ****************"
@@ -80,6 +102,11 @@ def test_empty_custom_pattern_name():
 def test_invalid_mode_redactor_constructor():
     with pytest.raises(ValueError):
         redactix.Redactor(mode="unknown")
+
+
+def test_invalid_builtin_pattern_name():
+    with pytest.raises(ValueError):
+        redactix.Redactor(patterns=["address"])
 
 
 def test_invalid_mode_redactor_method():

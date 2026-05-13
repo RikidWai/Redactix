@@ -6,18 +6,25 @@ use std::collections::HashMap;
 
 use pyo3::prelude::*;
 
-use crate::redactor::replacement_for;
+use crate::redactor::{BuiltinPattern, replacement_for};
 use crate::types::PiiMatch;
 
 pub fn detect_builtin(
     text: &str,
+    patterns: &[BuiltinPattern],
     placeholders: &HashMap<String, String>,
     py: Python<'_>,
 ) -> PyResult<Vec<PiiMatch>> {
     let mut matches = Vec::new();
-    matches.extend(email::detect(text, placeholders, py)?);
-    matches.extend(phone::detect(text, placeholders, py)?);
-    matches.extend(credit_card::detect(text, placeholders, py)?);
+    for pattern in patterns {
+        match pattern {
+            BuiltinPattern::Email => matches.extend(email::detect(text, placeholders, py)?),
+            BuiltinPattern::Phone => matches.extend(phone::detect(text, placeholders, py)?),
+            BuiltinPattern::CreditCard => {
+                matches.extend(credit_card::detect(text, placeholders, py)?)
+            }
+        }
+    }
     Ok(matches)
 }
 

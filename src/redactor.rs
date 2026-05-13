@@ -13,9 +13,17 @@ pub enum RedactionMode {
 }
 
 pub struct Redactor {
+    builtin_patterns: Vec<BuiltinPattern>,
     custom_patterns: Vec<CustomPattern>,
     placeholders: HashMap<String, String>,
     pub default_mode: RedactionMode,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BuiltinPattern {
+    Email,
+    Phone,
+    CreditCard,
 }
 
 struct CustomPattern {
@@ -29,6 +37,7 @@ impl Redactor {
         custom_patterns: Option<HashMap<String, String>>,
         placeholders: Option<HashMap<String, String>>,
         default_mode: RedactionMode,
+        builtin_patterns: Option<Vec<String>>,
     ) -> PyResult<Self> {
         let mut compiled_custom_patterns = Vec::new();
 
@@ -45,6 +54,7 @@ impl Redactor {
         }
 
         Ok(Self {
+            builtin_patterns: validate_builtin_patterns(builtin_patterns)?,
             custom_patterns: compiled_custom_patterns,
             placeholders: placeholders.unwrap_or_default(),
             default_mode,
@@ -52,7 +62,8 @@ impl Redactor {
     }
 
     pub fn detect(&self, text: &str, py: Python<'_>) -> PyResult<Vec<PiiMatch>> {
-        let mut matches = detectors::detect_builtin(text, &self.placeholders, py)?;
+        let mut matches =
+            detectors::detect_builtin(text, &self.builtin_patterns, &self.placeholders, py)?;
 
         for custom_pattern in &self.custom_patterns {
             matches.extend(detectors::detect_with_python_regex(
@@ -73,6 +84,34 @@ impl Redactor {
             .map(|pii_match| pii_match.to_py_dict(py))
             .collect()
     }
+}
+
+impl BuiltinPattern {
+    pub fn from_name(name: &str) -> PyResult<Self> {
+        match name {
+            "email" => Ok(Self::Email),
+            "phone" => Ok(Self::Phone),
+            "credit_card" => Ok(Self::CreditCard),
+            _ => Err(PyValueError::new_err(format!(
+                "invalid built-in pattern '{name}'; expected one of: email, phone, credit_card"
+            ))),
+        }
+    }
+}
+
+fn validate_builtin_patterns(patterns: Option<Vec<String>>) -> PyResult<Vec<BuiltinPattern>> {
+    let patterns = patterns.unwrap_or_else(|| {
+        vec![
+            "email".to_string(),
+            "phone".to_string(),
+            "credit_card".to_string(),
+        ]
+    });
+
+    patterns
+        .iter()
+        .map(|pattern| BuiltinPattern::from_name(pattern))
+        .collect()
 }
 
 pub fn validate_mode(mode: &str) -> PyResult<RedactionMode> {
