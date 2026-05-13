@@ -67,7 +67,6 @@ pub fn sort_and_remove_overlaps(mut matches: Vec<PiiMatch>) -> Vec<PiiMatch> {
         left.start
             .cmp(&right.start)
             .then_with(|| right.end.cmp(&left.end))
-            .then_with(|| left.type_name.cmp(&right.type_name))
     });
 
     let mut filtered = Vec::new();

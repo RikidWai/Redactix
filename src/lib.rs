@@ -13,7 +13,7 @@ use redactor::{RedactionMode, Redactor as InnerRedactor, validate_mode};
 
 #[pyfunction]
 fn detect(py: Python<'_>, text: &str) -> PyResult<Vec<Py<PyAny>>> {
-    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder, None)?;
+    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder, None, true)?;
     redactor.detect_py(py, text)
 }
 
@@ -21,7 +21,7 @@ fn detect(py: Python<'_>, text: &str) -> PyResult<Vec<Py<PyAny>>> {
 #[pyo3(signature = (text, mode = "placeholder"))]
 fn redact(py: Python<'_>, text: &str, mode: &str) -> PyResult<String> {
     let mode = validate_mode(mode)?;
-    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder, None)?;
+    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder, None, true)?;
     let matches = redactor.detect(text, py)?;
     apply_redaction(text, &matches, mode)
 }
@@ -34,17 +34,25 @@ struct PyRedactor {
 #[pymethods]
 impl PyRedactor {
     #[new]
-    #[pyo3(signature = (custom_patterns = None, placeholders = None, mode = "placeholder", patterns = None))]
+    #[pyo3(signature = (custom_patterns = None, placeholders = None, mode = "placeholder", patterns = None, default_patterns = false))]
     fn new(
         py: Python<'_>,
         custom_patterns: Option<HashMap<String, String>>,
         placeholders: Option<HashMap<String, String>>,
         mode: &str,
         patterns: Option<Vec<String>>,
+        default_patterns: bool,
     ) -> PyResult<Self> {
         let mode = validate_mode(mode)?;
         Ok(Self {
-            inner: InnerRedactor::new(py, custom_patterns, placeholders, mode, patterns)?,
+            inner: InnerRedactor::new(
+                py,
+                custom_patterns,
+                placeholders,
+                mode,
+                patterns,
+                default_patterns,
+            )?,
         })
     }
 
@@ -60,6 +68,18 @@ impl PyRedactor {
         };
         let matches = self.inner.detect(text, py)?;
         apply_redaction(text, &matches, mode)
+    }
+
+    fn add_pattern(&mut self, py: Python<'_>, name: String, pattern: String) -> PyResult<()> {
+        self.inner.add_pattern(py, name, pattern)
+    }
+
+    fn replace_pattern(&mut self, py: Python<'_>, name: String, pattern: String) -> PyResult<()> {
+        self.inner.replace_pattern(py, name, pattern)
+    }
+
+    fn remove_pattern(&mut self, name: &str) -> PyResult<()> {
+        self.inner.remove_pattern(name)
     }
 }
 

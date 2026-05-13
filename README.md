@@ -68,26 +68,31 @@ redactix.redact("Email alex@example.com", mode="mask")
 
 Use `Redactor` when you need to choose which built-in PII types to detect, add custom text patterns, set custom placeholders, or change the default mode.
 
+`Redactor()` does not enable built-in patterns by default. Enable every built-in with `default_patterns=True`:
+
+```python
+redactor = redactix.Redactor(default_patterns=True)
+```
+
 Supported built-in patterns are:
 
 - `email`
 - `phone`
 - `credit_card`
 
-Choose a subset of built-ins with `patterns`:
+Choose an ordered subset of built-ins with `patterns`:
 
 ```python
-redactor = redactix.Redactor(patterns=["email", "phone"])
+redactor = redactix.Redactor(patterns=["credit_card"])
 
 redactor.redact("Email alex@example.com. Card: 4111 1111 1111 1111.")
-# "Email {{EMAIL}}. Card: 4111 1111 1111 1111."
+# "Email alex@example.com. Card: {{CREDIT_CARD}}."
 ```
 
-Use `patterns=[]` for a custom-only redactor:
+Custom-only redactors can omit `patterns`:
 
 ```python
 redactor = redactix.Redactor(
-    patterns=[],
     custom_patterns={"name": r"\bJane Doe\b"},
 )
 
@@ -101,11 +106,21 @@ import redactix
 redactor = redactix.Redactor(
     custom_patterns={"name": r"\bJane Doe\b"},
     placeholders={"name": "{{PERSON}}", "email": "{{HIDDEN_EMAIL}}"},
+    default_patterns=True,
 )
 
 redactor.detect("Jane Doe emailed alex@example.com")
 redactor.redact("Jane Doe emailed alex@example.com")
 # "{{PERSON}} emailed {{HIDDEN_EMAIL}}"
+```
+
+Pattern names must be unique. Use `add_pattern()` for new custom patterns, `replace_pattern()` when intentionally overriding an active pattern, and `remove_pattern()` to disable an active built-in or custom pattern:
+
+```python
+redactor = redactix.Redactor(patterns=["email"])
+redactor.add_pattern("name", r"\bJane Doe\b")
+redactor.replace_pattern("email", r"alex@example\.com")
+redactor.remove_pattern("name")
 ```
 
 Set mask mode as the default:
@@ -140,10 +155,11 @@ redactix.Redactor(
     placeholders: dict[str, str] | None = None,
     mode: str = "placeholder",
     patterns: list[str] | None = None,
+    default_patterns: bool = False,
 )
 ```
 
-`patterns=None` enables all built-in patterns. `patterns=[]` disables built-ins. Unsupported pattern names raise `ValueError`.
+`default_patterns=True` enables all built-in patterns. `patterns=[...]` enables the named built-ins in the given order. `patterns=None` and `patterns=[]` both leave built-ins disabled. Unsupported or duplicate pattern names raise `ValueError`. `default_patterns=True` cannot be combined with `patterns`.
 
 Supported redaction modes are `placeholder` and `mask`.
 
