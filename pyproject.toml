@@ -1,7 +1,7 @@
 [project]
 name = "redactix"
 version = "0.1.0"
-description = "Add your description here"
+description = "Rust-backed Python library for detecting and redacting common PII in text"
 readme = "README.md"
 authors = [
     { name = "Redactix Contributors" }
