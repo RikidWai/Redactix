@@ -91,9 +91,13 @@ impl Redactor {
 
         for pattern in &self.patterns {
             match pattern {
-                ActivePattern::Builtin(builtin_pattern) => matches.extend(
-                    detectors::detect_builtin(text, &[*builtin_pattern], &self.placeholders, py)?,
-                ),
+                ActivePattern::Builtin(builtin_pattern) => {
+                    matches.extend(detectors::detect_builtin(
+                        text,
+                        &[*builtin_pattern],
+                        &self.placeholders,
+                    ));
+                }
                 ActivePattern::Custom(custom_pattern) => {
                     matches.extend(detectors::detect_with_python_regex(
                         py,

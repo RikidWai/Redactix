@@ -5,6 +5,7 @@ pub mod phone;
 use std::collections::HashMap;
 
 use pyo3::prelude::*;
+use regex::Regex;
 
 use crate::redactor::{BuiltinPattern, replacement_for};
 use crate::types::PiiMatch;
@@ -13,19 +14,54 @@ pub fn detect_builtin(
     text: &str,
     patterns: &[BuiltinPattern],
     placeholders: &HashMap<String, String>,
-    py: Python<'_>,
-) -> PyResult<Vec<PiiMatch>> {
+) -> Vec<PiiMatch> {
     let mut matches = Vec::new();
     for pattern in patterns {
         match pattern {
-            BuiltinPattern::Email => matches.extend(email::detect(text, placeholders, py)?),
-            BuiltinPattern::Phone => matches.extend(phone::detect(text, placeholders, py)?),
-            BuiltinPattern::CreditCard => {
-                matches.extend(credit_card::detect(text, placeholders, py)?)
-            }
+            BuiltinPattern::Email => matches.extend(email::detect(text, placeholders)),
+            BuiltinPattern::Phone => matches.extend(phone::detect(text, placeholders)),
+            BuiltinPattern::CreditCard => matches.extend(credit_card::detect(text, placeholders)),
         }
     }
-    Ok(matches)
+    matches
+}
+
+pub fn detect_with_rust_regex(
+    type_name: &str,
+    regex: &Regex,
+    text: &str,
+    placeholders: &HashMap<String, String>,
+) -> Vec<PiiMatch> {
+    regex
+        .find_iter(text)
+        .filter(|regex_match| !regex_match.as_str().is_empty())
+        .map(|regex_match| {
+            pii_match_from_byte_span(
+                type_name,
+                text,
+                regex_match.start(),
+                regex_match.end(),
+                placeholders,
+            )
+        })
+        .collect()
+}
+
+pub fn pii_match_from_byte_span(
+    type_name: &str,
+    text: &str,
+    start: usize,
+    end: usize,
+    placeholders: &HashMap<String, String>,
+) -> PiiMatch {
+    let (start_char, end_char) = char_span_from_byte_span(text, start, end);
+    PiiMatch::new(
+        type_name,
+        start_char,
+        end_char,
+        text[start..end].to_string(),
+        replacement_for(type_name, placeholders),
+    )
 }
 
 pub fn detect_with_python_regex(
@@ -62,6 +98,14 @@ pub fn detect_with_python_regex(
     Ok(matches)
 }
 
+pub fn previous_char(text: &str, byte_index: usize) -> Option<char> {
+    text[..byte_index].chars().next_back()
+}
+
+pub fn next_char(text: &str, byte_index: usize) -> Option<char> {
+    text[byte_index..].chars().next()
+}
+
 pub fn sort_and_remove_overlaps(mut matches: Vec<PiiMatch>) -> Vec<PiiMatch> {
     matches.sort_by(|left, right| {
         left.start
@@ -80,4 +124,12 @@ pub fn sort_and_remove_overlaps(mut matches: Vec<PiiMatch>) -> Vec<PiiMatch> {
     }
 
     filtered
+}
+
+fn char_span_from_byte_span(text: &str, start: usize, end: usize) -> (usize, usize) {
+    if text.is_ascii() {
+        return (start, end);
+    }
+
+    (text[..start].chars().count(), text[..end].chars().count())
 }

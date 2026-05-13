@@ -18,6 +18,18 @@ def test_invalid_credit_card_is_not_detected():
     assert redactix.detect("Card 1234 5678 9012 3456") == []
 
 
+def test_credit_card_inside_long_digit_run_is_not_detected():
+    assert redactix.detect("Token 04111111111111111111") == []
+
+
+def test_phone_inside_word_is_not_detected():
+    assert redactix.detect("refA415-555-2671") == []
+
+
+def test_phone_after_plus_boundary_is_not_detected():
+    assert redactix.detect("Call ++1 415-555-2671") == []
+
+
 def test_detect_builtin_example():
     text = "Contact me at alex@example.com or +1 415-555-2671. Card: 4111 1111 1111 1111."
     assert redactix.detect(text) == [
