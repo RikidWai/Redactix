@@ -1,117 +1,137 @@
 import pytest
 import redactix
+from redactix import Detection
 
 
-def test_custom_name_detector():
+def test_expected_usage():
+    text = "Employee EMP123456 used alex@example.com and 4111 1111 1111 1111."
     redactor = redactix.Redactor(
-        custom_detectors={"name": r"\bJane Doe\b"},
-        default_detectors=True,
+        detectors=["email", "credit_card"],
+        mask_strategy="placeholder",
     )
-    assert redactor.redact("Jane Doe emailed alex@example.com") == "{{NAME}} emailed {{EMAIL}}"
+    redactor.register_detector(
+        name="employee_id",
+        pattern=r"\bEMP\d{6}\b",
+        placeholder="{{EMPLOYEE_ID}}",
+        enabled=True,
+    )
+
+    assert redactor.redact(text) == (
+        "Employee {{EMPLOYEE_ID}} used {{EMAIL}} and {{CREDIT_CARD}}."
+    )
+    assert redactor.detect(text) == [
+        Detection(
+            start=9,
+            end=18,
+            value="EMP123456",
+            entity_type="EMPLOYEE_ID",
+            detector_name="employee_id",
+            replacement="{{EMPLOYEE_ID}}",
+        ),
+        Detection(
+            start=24,
+            end=40,
+            value="alex@example.com",
+            entity_type="EMAIL",
+            detector_name="email",
+            replacement="{{EMAIL}}",
+        ),
+        Detection(
+            start=45,
+            end=64,
+            value="4111 1111 1111 1111",
+            entity_type="CREDIT_CARD",
+            detector_name="credit_card",
+            replacement="{{CREDIT_CARD}}",
+        ),
+    ]
+    assert redactor.redact_with_report(text).text == redactor.redact(text)
+
+
+def test_redactor_defaults_to_common_builtins():
+    redactor = redactix.Redactor()
+    assert redactor.redact("Jane emailed alex@example.com") == (
+        "Jane emailed {{EMAIL}}"
+    )
+
+
+def test_empty_detectors_disables_builtins():
+    redactor = redactix.Redactor(detectors=[])
+    assert redactor.redact("Email alex@example.com") == "Email alex@example.com"
 
 
 def test_select_builtin_detectors():
     redactor = redactix.Redactor(detectors=["email"])
     text = "Email alex@example.com or call +1 415-555-2671. Card: 4111 1111 1111 1111."
     assert redactor.detect(text) == [
-        {
-            "type": "email",
-            "start": 6,
-            "end": 22,
-            "text": "alex@example.com",
-            "replacement": "{{EMAIL}}",
-        }
+        Detection(
+            start=6,
+            end=22,
+            value="alex@example.com",
+            entity_type="EMAIL",
+            detector_name="email",
+            replacement="{{EMAIL}}",
+        )
     ]
 
 
-def test_redactor_defaults_to_custom_only():
-    redactor = redactix.Redactor(custom_detectors={"name": r"\bJane Doe\b"})
-    assert redactor.redact("Jane Doe emailed alex@example.com") == "{{NAME}} emailed alex@example.com"
-
-
-def test_custom_name_detector_mask_mode():
-    redactor = redactix.Redactor(
-        custom_detectors={"name": r"\bJane Doe\b"},
-        default_detectors=True,
-    )
-    assert redactor.redact("Jane Doe emailed alex@example.com", mode="mask") == (
-        "******** emailed ****************"
-    )
-
-
-def test_custom_name_detect_example():
-    text = "Jane Doe can be contacted at alex@example.com."
-    redactor = redactix.Redactor(
-        custom_detectors={"name": r"\bJane Doe\b"},
-        default_detectors=True,
-    )
-    assert redactor.detect(text) == [
-        {
-            "type": "name",
-            "start": 0,
-            "end": 8,
-            "text": "Jane Doe",
-            "replacement": "{{NAME}}",
-        },
-        {
-            "type": "email",
-            "start": 29,
-            "end": 45,
-            "text": "alex@example.com",
-            "replacement": "{{EMAIL}}",
-        },
-    ]
-
-
-def test_custom_placeholder():
-    redactor = redactix.Redactor(
-        custom_detectors={"name": r"\bJane Doe\b"},
-        placeholders={"name": "{{PERSON}}"},
-    )
+def test_custom_placeholder_override():
+    redactor = redactix.Redactor(detectors=[])
+    redactor.register_detector("name", r"\bJane Doe\b", placeholder="{{PERSON}}")
     assert redactor.redact("Jane Doe") == "{{PERSON}}"
 
 
-def test_custom_placeholder_can_override_builtin():
-    redactor = redactix.Redactor(
-        custom_detectors={"name": r"\bJane Doe\b"},
-        placeholders={"name": "{{PERSON}}", "email": "{{HIDDEN_EMAIL}}"},
-        default_detectors=True,
-    )
-    assert redactor.redact("Jane Doe can be contacted at alex@example.com.") == (
-        "{{PERSON}} can be contacted at {{HIDDEN_EMAIL}}."
-    )
+def test_placeholder_format():
+    redactor = redactix.Redactor(placeholder_format="[[{entity_type}]]")
+    assert redactor.redact("Email alex@example.com") == "Email [[EMAIL]]"
 
 
-def test_default_mode_mask():
-    redactor = redactix.Redactor(
-        custom_detectors={"name": r"\bJane Doe\b"},
-        mode="mask",
-        default_detectors=True,
-    )
-    assert redactor.redact("Jane Doe emailed alex@example.com") == "******** emailed ****************"
+def test_fixed_mask_configuration():
+    redactor = redactix.Redactor(mask_strategy="fixed", fixed_mask="[redacted]")
+    assert redactor.redact("Email alex@example.com") == "Email [redacted]"
 
 
-def test_override_default_mode_per_call():
-    redactor = redactix.Redactor(
-        custom_detectors={"name": r"\bJane Doe\b"},
-        mode="mask",
-    )
-    assert redactor.redact("Jane Doe", mode="placeholder") == "{{NAME}}"
+def test_length_preserving_mask_char_configuration():
+    redactor = redactix.Redactor(mask_strategy="length_preserving", mask_char="x")
+    assert redactor.redact("Email alex@example.com") == "Email xxxxxxxxxxxxxxxx"
+
+
+def test_disabled_custom_detector_is_registered_but_inactive():
+    redactor = redactix.Redactor(detectors=[])
+    redactor.register_detector("name", r"\bJane Doe\b", enabled=False)
+    assert redactor.redact("Jane Doe") == "Jane Doe"
+
+
+def test_custom_detector_default_placeholder_uses_uppercase_name():
+    redactor = redactix.Redactor(detectors=[])
+    redactor.register_detector("employee_id", r"EMP-123")
+    assert redactor.redact("Employee EMP-123") == "Employee {{EMPLOYEE_ID}}"
+
+
+def test_overlap_prefers_higher_priority():
+    redactor = redactix.Redactor(detectors=[])
+    redactor.register_detector("short_id", r"EMP123", priority=100)
+    redactor.register_detector("employee_id", r"EMP123456", priority=200)
+    assert redactor.redact("Employee EMP123456") == "Employee {{EMPLOYEE_ID}}"
+
+
+def test_overlap_equal_priority_prefers_longer_match():
+    redactor = redactix.Redactor(detectors=[])
+    redactor.register_detector("short_id", r"EMP123", priority=100)
+    redactor.register_detector("employee_id", r"EMP123456", priority=100)
+    assert redactor.redact("Employee EMP123456") == "Employee {{EMPLOYEE_ID}}"
 
 
 def test_invalid_custom_regex():
+    redactor = redactix.Redactor(detectors=[])
     with pytest.raises(ValueError):
-        redactix.Redactor(custom_detectors={"name": "["})
+        redactor.register_detector("name", "[")
 
 
 def test_empty_custom_detector_name():
+    redactor = redactix.Redactor(detectors=[])
     with pytest.raises(ValueError):
-        redactix.Redactor(custom_detectors={"": r"Jane"})
-
-
-def test_invalid_mode_redactor_constructor():
-    with pytest.raises(ValueError):
-        redactix.Redactor(mode="unknown")
+        redactor.register_detector("", r"Jane")
 
 
 def test_invalid_builtin_detector_name():
@@ -119,98 +139,18 @@ def test_invalid_builtin_detector_name():
         redactix.Redactor(detectors=["address"])
 
 
-def test_default_detectors_enables_all_builtins():
-    redactor = redactix.Redactor(default_detectors=True)
-    assert redactor.redact("Email alex@example.com") == "Email {{EMAIL}}"
-
-
-def test_default_detectors_cannot_be_combined_with_detectors():
-    with pytest.raises(ValueError):
-        redactix.Redactor(detectors=["email"], default_detectors=True)
-
-
 def test_duplicate_builtin_detector_name_in_constructor():
     with pytest.raises(ValueError):
         redactix.Redactor(detectors=["email", "email"])
 
 
-def test_custom_detector_cannot_duplicate_active_builtin():
-    with pytest.raises(ValueError):
-        redactix.Redactor(
-            detectors=["email"],
-            custom_detectors={"email": r"alex@example\.com"},
-        )
-
-
-def test_invalid_mode_redactor_method():
-    redactor = redactix.Redactor()
-    with pytest.raises(ValueError):
-        redactor.redact("Email alex@example.com", mode="unknown")
-
-
-def test_custom_detector_default_placeholder_uses_uppercase_type():
-    redactor = redactix.Redactor(custom_detectors={"employee_id": r"EMP-123"})
-    assert redactor.redact("Employee EMP-123") == "Employee {{EMPLOYEE_ID}}"
-
-
-def test_overlapping_matches_keep_first_safe_span():
-    redactor = redactix.Redactor(custom_detectors={"wide": r"alex@example\.com extra"})
-    assert redactor.redact("alex@example.com extra") == "{{WIDE}}"
-
-
-def test_add_detector_adds_custom_detector():
-    redactor = redactix.Redactor()
-    redactor.add_detector("name", r"\bJane Doe\b")
-    assert redactor.redact("Jane Doe emailed alex@example.com") == "{{NAME}} emailed alex@example.com"
-
-
-def test_add_detector_fails_if_name_exists():
-    redactor = redactix.Redactor(custom_detectors={"name": r"\bJane Doe\b"})
-    with pytest.raises(ValueError):
-        redactor.add_detector("name", r"\bJohn Doe\b")
-
-
-def test_add_detector_fails_if_builtin_name_exists():
+def test_custom_detector_cannot_duplicate_builtin_name():
     redactor = redactix.Redactor(detectors=["email"])
     with pytest.raises(ValueError):
-        redactor.add_detector("email", r"alex@example\.com")
+        redactor.register_detector("email", r"alex@example\.com")
 
 
-def test_replace_detector_overrides_custom_detector():
-    redactor = redactix.Redactor(custom_detectors={"name": r"\bJane Doe\b"})
-    redactor.replace_detector("name", r"\bJohn Doe\b")
-    assert redactor.redact("Jane Doe and John Doe") == "Jane Doe and {{NAME}}"
-
-
-def test_replace_detector_overrides_builtin_detector():
-    redactor = redactix.Redactor(detectors=["email"])
-    redactor.replace_detector("email", r"alex@example\.com")
-    assert redactor.redact("Email alex@example.com or bob@example.com") == (
-        "Email {{EMAIL}} or bob@example.com"
-    )
-
-
-def test_replace_detector_fails_if_name_does_not_exist():
-    redactor = redactix.Redactor()
-    with pytest.raises(ValueError):
-        redactor.replace_detector("name", r"\bJane Doe\b")
-
-
-def test_remove_detector_disables_builtin():
-    redactor = redactix.Redactor(default_detectors=True)
-    redactor.remove_detector("email")
-    assert redactor.redact("Email alex@example.com. Card: 4111 1111 1111 1111.") == (
-        "Email alex@example.com. Card: {{CREDIT_CARD}}."
-    )
-
-
-def test_remove_detector_disables_custom_detector():
-    redactor = redactix.Redactor(custom_detectors={"name": r"\bJane Doe\b"})
-    redactor.remove_detector("name")
-    assert redactor.redact("Jane Doe") == "Jane Doe"
-
-
-def test_remove_detector_fails_if_name_does_not_exist():
-    redactor = redactix.Redactor()
-    with pytest.raises(ValueError):
-        redactor.remove_detector("name")
+def test_custom_detector_names_are_normalized():
+    redactor = redactix.Redactor(detectors=[])
+    redactor.register_detector("Employee_ID", r"EMP-123")
+    assert redactor.detect("EMP-123")[0].detector_name == "employee_id"

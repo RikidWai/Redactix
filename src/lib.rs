@@ -4,26 +4,71 @@ mod redactor;
 mod types;
 mod validators;
 
-use std::collections::HashMap;
-
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
-use redaction::apply_redaction;
-use redactor::{RedactionMode, Redactor as InnerRedactor, validate_mode};
+use redactor::{Redactor as InnerRedactor, settings_from_parts};
 
 #[pyfunction]
-fn detect(py: Python<'_>, text: &str) -> PyResult<Vec<Py<PyAny>>> {
-    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder, None, true)?;
+#[pyo3(signature = (text, detectors = None, mask_strategy = "placeholder", placeholder_format = "{{{entity_type}}}", mask_char = "*", fixed_mask = "***"))]
+fn detect(
+    py: Python<'_>,
+    text: &str,
+    detectors: Option<Vec<String>>,
+    mask_strategy: &str,
+    placeholder_format: &str,
+    mask_char: &str,
+    fixed_mask: &str,
+) -> PyResult<Vec<Py<PyAny>>> {
+    let redactor = build_redactor(
+        detectors,
+        mask_strategy,
+        placeholder_format,
+        mask_char,
+        fixed_mask,
+    )?;
     redactor.detect_py(py, text)
 }
 
 #[pyfunction]
-#[pyo3(signature = (text, mode = "placeholder"))]
-fn redact(py: Python<'_>, text: &str, mode: &str) -> PyResult<String> {
-    let mode = validate_mode(mode)?;
-    let redactor = InnerRedactor::new(py, None, None, RedactionMode::Placeholder, None, true)?;
-    let matches = redactor.detect(text, py)?;
-    apply_redaction(text, &matches, mode)
+#[pyo3(signature = (text, detectors = None, mask_strategy = "placeholder", placeholder_format = "{{{entity_type}}}", mask_char = "*", fixed_mask = "***"))]
+fn redact(
+    text: &str,
+    detectors: Option<Vec<String>>,
+    mask_strategy: &str,
+    placeholder_format: &str,
+    mask_char: &str,
+    fixed_mask: &str,
+) -> PyResult<String> {
+    let redactor = build_redactor(
+        detectors,
+        mask_strategy,
+        placeholder_format,
+        mask_char,
+        fixed_mask,
+    )?;
+    redactor.redact(text)
+}
+
+#[pyfunction]
+#[pyo3(signature = (text, detectors = None, mask_strategy = "placeholder", placeholder_format = "{{{entity_type}}}", mask_char = "*", fixed_mask = "***"))]
+fn redact_with_report(
+    py: Python<'_>,
+    text: &str,
+    detectors: Option<Vec<String>>,
+    mask_strategy: &str,
+    placeholder_format: &str,
+    mask_char: &str,
+    fixed_mask: &str,
+) -> PyResult<Py<PyAny>> {
+    let redactor = build_redactor(
+        detectors,
+        mask_strategy,
+        placeholder_format,
+        mask_char,
+        fixed_mask,
+    )?;
+    redact_with_report_py(py, &redactor, text)
 }
 
 #[pyclass(name = "Redactor")]
@@ -34,24 +79,21 @@ struct PyRedactor {
 #[pymethods]
 impl PyRedactor {
     #[new]
-    #[pyo3(signature = (custom_detectors = None, placeholders = None, mode = "placeholder", detectors = None, default_detectors = false))]
+    #[pyo3(signature = (detectors = None, mask_strategy = "placeholder", placeholder_format = "{{{entity_type}}}", mask_char = "*", fixed_mask = "***"))]
     fn new(
-        py: Python<'_>,
-        custom_detectors: Option<HashMap<String, String>>,
-        placeholders: Option<HashMap<String, String>>,
-        mode: &str,
         detectors: Option<Vec<String>>,
-        default_detectors: bool,
+        mask_strategy: &str,
+        placeholder_format: &str,
+        mask_char: &str,
+        fixed_mask: &str,
     ) -> PyResult<Self> {
-        let mode = validate_mode(mode)?;
         Ok(Self {
-            inner: InnerRedactor::new(
-                py,
-                custom_detectors,
-                placeholders,
-                mode,
+            inner: build_redactor(
                 detectors,
-                default_detectors,
+                mask_strategy,
+                placeholder_format,
+                mask_char,
+                fixed_mask,
             )?,
         })
     }
@@ -60,26 +102,25 @@ impl PyRedactor {
         self.inner.detect_py(py, text)
     }
 
-    #[pyo3(signature = (text, mode = None))]
-    fn redact(&self, py: Python<'_>, text: &str, mode: Option<&str>) -> PyResult<String> {
-        let mode = match mode {
-            Some(mode) => validate_mode(mode)?,
-            None => self.inner.default_mode,
-        };
-        let matches = self.inner.detect(text, py)?;
-        apply_redaction(text, &matches, mode)
+    fn redact(&self, text: &str) -> PyResult<String> {
+        self.inner.redact(text)
     }
 
-    fn add_detector(&mut self, py: Python<'_>, name: String, regex: String) -> PyResult<()> {
-        self.inner.add_detector(py, name, regex)
+    fn redact_with_report(&self, py: Python<'_>, text: &str) -> PyResult<Py<PyAny>> {
+        redact_with_report_py(py, &self.inner, text)
     }
 
-    fn replace_detector(&mut self, py: Python<'_>, name: String, regex: String) -> PyResult<()> {
-        self.inner.replace_detector(py, name, regex)
-    }
-
-    fn remove_detector(&mut self, name: &str) -> PyResult<()> {
-        self.inner.remove_detector(name)
+    #[pyo3(signature = (name, pattern, placeholder = None, enabled = true, priority = 100))]
+    fn register_detector(
+        &mut self,
+        name: String,
+        pattern: String,
+        placeholder: Option<String>,
+        enabled: bool,
+        priority: i32,
+    ) -> PyResult<()> {
+        self.inner
+            .register_detector(name, pattern, placeholder, enabled, priority)
     }
 }
 
@@ -87,6 +128,36 @@ impl PyRedactor {
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(detect, m)?)?;
     m.add_function(wrap_pyfunction!(redact, m)?)?;
+    m.add_function(wrap_pyfunction!(redact_with_report, m)?)?;
     m.add_class::<PyRedactor>()?;
     Ok(())
+}
+
+fn build_redactor(
+    detectors: Option<Vec<String>>,
+    mask_strategy: &str,
+    placeholder_format: &str,
+    mask_char: &str,
+    fixed_mask: &str,
+) -> PyResult<InnerRedactor> {
+    let settings = settings_from_parts(mask_strategy, placeholder_format, mask_char, fixed_mask)?;
+    InnerRedactor::new(detectors, settings)
+}
+
+fn redact_with_report_py(
+    py: Python<'_>,
+    redactor: &InnerRedactor,
+    text: &str,
+) -> PyResult<Py<PyAny>> {
+    let detections = redactor.detect(text)?;
+    let redacted = crate::redaction::apply_redaction(text, &detections)?;
+    let detection_dicts = detections
+        .iter()
+        .map(|pii_match| pii_match.to_py_dict(py))
+        .collect::<PyResult<Vec<_>>>()?;
+
+    let report = PyDict::new(py);
+    report.set_item("text", redacted)?;
+    report.set_item("detections", detection_dicts)?;
+    Ok(report.into_any().unbind())
 }

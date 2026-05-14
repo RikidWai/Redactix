@@ -1,21 +1,16 @@
-use std::collections::HashMap;
-
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use regex::Regex;
 
 use crate::detectors;
-use crate::types::PiiMatch;
+use crate::types::{DetectorConfig, MaskStrategy, PiiMatch, RedactionSettings};
 
-#[derive(Clone, Copy, Debug)]
-pub enum RedactionMode {
-    Placeholder,
-    Mask,
-}
+const DEFAULT_PRIORITY: i32 = 100;
 
 pub struct Redactor {
     detectors: Vec<ActiveDetector>,
-    placeholders: HashMap<String, String>,
-    pub default_mode: RedactionMode,
+    settings: RedactionSettings,
+    next_order: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -25,162 +20,132 @@ pub enum BuiltinDetector {
     CreditCard,
 }
 
-struct CustomDetector {
-    type_name: String,
-    regex: Py<PyAny>,
-}
-
 enum ActiveDetector {
-    Builtin(BuiltinDetector),
-    Custom(CustomDetector),
+    Builtin {
+        detector: BuiltinDetector,
+        config: DetectorConfig,
+    },
+    Custom {
+        config: DetectorConfig,
+        regex: Regex,
+    },
 }
 
 impl Redactor {
-    pub fn new(
-        py: Python<'_>,
-        custom_detectors: Option<HashMap<String, String>>,
-        placeholders: Option<HashMap<String, String>>,
-        default_mode: RedactionMode,
-        builtin_detectors: Option<Vec<String>>,
-        default_detectors: bool,
-    ) -> PyResult<Self> {
-        if default_detectors && builtin_detectors.is_some() {
-            return Err(PyValueError::new_err(
-                "default_detectors=True cannot be combined with detectors",
-            ));
-        }
-
-        let mut detectors: Vec<ActiveDetector> = if default_detectors {
-            BuiltinDetector::all()
-                .into_iter()
-                .map(ActiveDetector::Builtin)
-                .collect()
-        } else {
-            validate_builtin_detectors(builtin_detectors)?
-                .into_iter()
-                .map(ActiveDetector::Builtin)
-                .collect()
+    pub fn new(detectors: Option<Vec<String>>, settings: RedactionSettings) -> PyResult<Self> {
+        let builtins = match detectors {
+            Some(detectors) => validate_builtin_detectors(detectors)?,
+            None => BuiltinDetector::all(),
         };
 
-        if let Some(custom_detectors) = custom_detectors {
-            for (type_name, regex) in custom_detectors {
-                if contains_detector(&detectors, &type_name) {
-                    return Err(PyValueError::new_err(format!(
-                        "detector '{type_name}' already exists"
-                    )));
-                }
-                detectors.push(ActiveDetector::Custom(CustomDetector::new(
-                    py, type_name, regex,
-                )?));
-            }
+        let mut active_detectors = Vec::with_capacity(builtins.len());
+        for builtin in builtins {
+            active_detectors.push(ActiveDetector::Builtin {
+                detector: builtin,
+                config: DetectorConfig {
+                    name: builtin.name().to_string(),
+                    entity_type: builtin.entity_type().to_string(),
+                    placeholder: None,
+                    enabled: true,
+                    priority: DEFAULT_PRIORITY,
+                    order: active_detectors.len(),
+                },
+            });
         }
 
+        let next_order = active_detectors.len();
+
         Ok(Self {
-            detectors,
-            placeholders: placeholders.unwrap_or_default(),
-            default_mode,
+            detectors: active_detectors,
+            settings,
+            next_order,
         })
     }
 
-    pub fn detect(&self, text: &str, py: Python<'_>) -> PyResult<Vec<PiiMatch>> {
+    pub fn detect(&self, text: &str) -> PyResult<Vec<PiiMatch>> {
         let mut matches = Vec::new();
 
         for detector in &self.detectors {
-            matches.extend(detector.detect(text, py, &self.placeholders)?);
+            matches.extend(detector.detect(text, &self.settings)?);
         }
 
-        Ok(detectors::sort_and_remove_overlaps(matches))
+        Ok(detectors::resolve_overlaps(matches))
     }
 
     pub fn detect_py(&self, py: Python<'_>, text: &str) -> PyResult<Vec<Py<PyAny>>> {
-        self.detect(text, py)?
+        self.detect(text)?
             .iter()
             .map(|pii_match| pii_match.to_py_dict(py))
             .collect()
     }
 
-    pub fn add_detector(
+    pub fn redact(&self, text: &str) -> PyResult<String> {
+        let matches = self.detect(text)?;
+        crate::redaction::apply_redaction(text, &matches)
+    }
+
+    pub fn register_detector(
         &mut self,
-        py: Python<'_>,
-        type_name: String,
-        regex: String,
+        name: String,
+        pattern: String,
+        placeholder: Option<String>,
+        enabled: bool,
+        priority: i32,
     ) -> PyResult<()> {
-        validate_custom_detector_name(&type_name)?;
-        if contains_detector(&self.detectors, &type_name) {
+        let name = normalize_detector_name(&name)?;
+        if BuiltinDetector::from_name(&name).is_ok() || self.contains_detector(&name) {
             return Err(PyValueError::new_err(format!(
-                "detector '{type_name}' already exists"
+                "detector '{name}' already exists"
             )));
         }
-        let custom_detector = CustomDetector::new(py, type_name, regex)?;
-        self.detectors.push(ActiveDetector::Custom(custom_detector));
+
+        let regex = Regex::new(&pattern).map_err(|err| {
+            PyValueError::new_err(format!("invalid regex for detector '{name}': {err}"))
+        })?;
+
+        self.detectors.push(ActiveDetector::Custom {
+            config: DetectorConfig {
+                entity_type: entity_type_for_name(&name),
+                name,
+                placeholder,
+                enabled,
+                priority,
+                order: self.next_order,
+            },
+            regex,
+        });
+        self.next_order += 1;
         Ok(())
     }
 
-    pub fn replace_detector(
-        &mut self,
-        py: Python<'_>,
-        type_name: String,
-        regex: String,
-    ) -> PyResult<()> {
-        validate_custom_detector_name(&type_name)?;
-        let Some(index) = find_detector_index(&self.detectors, &type_name) else {
-            return Err(PyValueError::new_err(format!(
-                "detector '{type_name}' does not exist"
-            )));
-        };
-        self.detectors[index] = ActiveDetector::Custom(CustomDetector::new(py, type_name, regex)?);
-        Ok(())
-    }
-
-    pub fn remove_detector(&mut self, type_name: &str) -> PyResult<()> {
-        validate_custom_detector_name(type_name)?;
-        let Some(index) = find_detector_index(&self.detectors, type_name) else {
-            return Err(PyValueError::new_err(format!(
-                "detector '{type_name}' does not exist"
-            )));
-        };
-        self.detectors.remove(index);
-        Ok(())
-    }
-}
-
-impl CustomDetector {
-    fn new(py: Python<'_>, type_name: String, regex: String) -> PyResult<Self> {
-        validate_custom_detector_name(&type_name)?;
-        Ok(Self {
-            regex: compile_regex(py, &type_name, &regex)?,
-            type_name,
-        })
+    fn contains_detector(&self, name: &str) -> bool {
+        self.detectors
+            .iter()
+            .any(|detector| detector.config().name == name)
     }
 }
 
 impl ActiveDetector {
-    fn type_name(&self) -> &str {
+    fn config(&self) -> &DetectorConfig {
         match self {
-            ActiveDetector::Builtin(builtin_detector) => builtin_detector.name(),
-            ActiveDetector::Custom(custom_detector) => &custom_detector.type_name,
+            ActiveDetector::Builtin { config, .. } => config,
+            ActiveDetector::Custom { config, .. } => config,
         }
     }
 
-    fn detect(
-        &self,
-        text: &str,
-        py: Python<'_>,
-        placeholders: &HashMap<String, String>,
-    ) -> PyResult<Vec<PiiMatch>> {
+    fn detect(&self, text: &str, settings: &RedactionSettings) -> PyResult<Vec<PiiMatch>> {
+        let config = self.config();
+        if !config.enabled {
+            return Ok(Vec::new());
+        }
+
         match self {
-            ActiveDetector::Builtin(builtin_detector) => Ok(detectors::detect_builtin_detector(
-                text,
-                *builtin_detector,
-                placeholders,
+            ActiveDetector::Builtin { detector, .. } => Ok(detectors::detect_builtin_detector(
+                text, *detector, config, settings,
             )),
-            ActiveDetector::Custom(custom_detector) => detectors::detect_with_python_regex(
-                py,
-                &custom_detector.type_name,
-                &custom_detector.regex,
-                text,
-                placeholders,
-            ),
+            ActiveDetector::Custom { regex, .. } => Ok(detectors::detect_with_rust_regex(
+                config, regex, text, settings,
+            )),
         }
     }
 }
@@ -208,77 +173,98 @@ impl BuiltinDetector {
             Self::CreditCard => "credit_card",
         }
     }
+
+    fn entity_type(self) -> &'static str {
+        match self {
+            Self::Email => "EMAIL",
+            Self::Phone => "PHONE",
+            Self::CreditCard => "CREDIT_CARD",
+        }
+    }
 }
 
-fn validate_builtin_detectors(detectors: Option<Vec<String>>) -> PyResult<Vec<BuiltinDetector>> {
-    let Some(detectors) = detectors else {
-        return Ok(Vec::new());
+pub fn settings_from_parts(
+    mask_strategy: &str,
+    placeholder_format: &str,
+    mask_char: &str,
+    fixed_mask: &str,
+) -> PyResult<RedactionSettings> {
+    let mask_strategy = match mask_strategy {
+        "placeholder" => MaskStrategy::Placeholder,
+        "fixed" => MaskStrategy::Fixed,
+        "length_preserving" => MaskStrategy::LengthPreserving,
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "invalid mask_strategy '{mask_strategy}'; expected one of: placeholder, fixed, length_preserving"
+            )));
+        }
     };
 
+    let mut mask_chars = mask_char.chars();
+    let Some(mask_char) = mask_chars.next() else {
+        if mask_strategy == MaskStrategy::LengthPreserving {
+            return Err(PyValueError::new_err("mask_char cannot be empty"));
+        }
+        return Ok(RedactionSettings {
+            mask_strategy,
+            placeholder_format: placeholder_format.to_string(),
+            mask_char: '*',
+            fixed_mask: fixed_mask.to_string(),
+        });
+    };
+    if mask_strategy == MaskStrategy::LengthPreserving && mask_chars.next().is_some() {
+        return Err(PyValueError::new_err(
+            "mask_char must contain exactly one character",
+        ));
+    }
+
+    Ok(RedactionSettings {
+        mask_strategy,
+        placeholder_format: placeholder_format.to_string(),
+        mask_char,
+        fixed_mask: fixed_mask.to_string(),
+    })
+}
+
+fn validate_builtin_detectors(detectors: Vec<String>) -> PyResult<Vec<BuiltinDetector>> {
     let mut validated = Vec::new();
+
     for detector in detectors {
-        let builtin_detector = BuiltinDetector::from_name(&detector)?;
+        let normalized = normalize_detector_name(&detector)?;
+        let builtin_detector = BuiltinDetector::from_name(&normalized)?;
         if validated
             .iter()
             .any(|existing: &BuiltinDetector| existing.name() == builtin_detector.name())
         {
             return Err(PyValueError::new_err(format!(
-                "detector '{detector}' already exists"
+                "detector '{normalized}' already exists"
             )));
         }
         validated.push(builtin_detector);
     }
+
     Ok(validated)
 }
 
-pub fn validate_mode(mode: &str) -> PyResult<RedactionMode> {
-    match mode {
-        "placeholder" => Ok(RedactionMode::Placeholder),
-        "mask" => Ok(RedactionMode::Mask),
-        _ => Err(PyValueError::new_err(format!(
-            "invalid redaction mode '{mode}'; expected 'placeholder' or 'mask'"
-        ))),
+fn normalize_detector_name(name: &str) -> PyResult<String> {
+    let normalized = name.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err(PyValueError::new_err("detector names cannot be empty"));
     }
-}
 
-pub fn default_placeholder(type_name: &str) -> String {
-    format!("{{{{{}}}}}", type_name.to_ascii_uppercase())
-}
-
-pub fn replacement_for(type_name: &str, placeholders: &HashMap<String, String>) -> String {
-    placeholders
-        .get(type_name)
-        .cloned()
-        .unwrap_or_else(|| default_placeholder(type_name))
-}
-
-fn validate_custom_detector_name(type_name: &str) -> PyResult<()> {
-    if type_name.trim().is_empty() {
+    let mut chars = normalized.chars();
+    let first = chars.next().expect("validated non-empty detector name");
+    if !(first.is_ascii_alphabetic() || first == '_')
+        || !chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
         return Err(PyValueError::new_err(
-            "custom detector names cannot be empty",
+            "detector names must contain only ASCII letters, numbers, and underscores, and cannot start with a number",
         ));
     }
-    Ok(())
+
+    Ok(normalized)
 }
 
-fn contains_detector(detectors: &[ActiveDetector], type_name: &str) -> bool {
-    find_detector_index(detectors, type_name).is_some()
-}
-
-fn find_detector_index(detectors: &[ActiveDetector], type_name: &str) -> Option<usize> {
-    detectors
-        .iter()
-        .position(|detector| detector.type_name() == type_name)
-}
-
-fn compile_regex(py: Python<'_>, type_name: &str, regex: &str) -> PyResult<Py<PyAny>> {
-    let re = py.import("re")?;
-    re.call_method1("compile", (regex,))
-        .map(|compiled| compiled.unbind())
-        .map_err(|err| {
-            PyValueError::new_err(format!(
-                "invalid custom regex for '{type_name}': {}",
-                err.value(py)
-            ))
-        })
+fn entity_type_for_name(name: &str) -> String {
+    name.to_ascii_uppercase()
 }

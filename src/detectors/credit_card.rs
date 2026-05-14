@@ -1,16 +1,15 @@
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use regex::Regex;
 
 use crate::detectors::{next_char, pii_match_from_byte_span, previous_char};
-use crate::types::PiiMatch;
+use crate::types::{DetectorConfig, PiiMatch, RedactionSettings};
 use crate::validators::luhn;
 
 const CREDIT_CARD_PATTERN: &str = r"(?:\d[ -]?){12,18}\d";
 static CREDIT_CARD_REGEX: OnceLock<Regex> = OnceLock::new();
 
-pub fn detect(text: &str, placeholders: &HashMap<String, String>) -> Vec<PiiMatch> {
+pub fn detect(text: &str, config: &DetectorConfig, settings: &RedactionSettings) -> Vec<PiiMatch> {
     credit_card_regex()
         .find_iter(text)
         .filter_map(|candidate| {
@@ -26,11 +25,11 @@ pub fn detect(text: &str, placeholders: &HashMap<String, String>) -> Vec<PiiMatc
 
             if luhn::is_valid(&digits) {
                 Some(pii_match_from_byte_span(
-                    "credit_card",
+                    config,
                     text,
                     candidate.start(),
                     candidate.end(),
-                    placeholders,
+                    settings,
                 ))
             } else {
                 None

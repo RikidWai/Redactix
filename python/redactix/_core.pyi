@@ -1,29 +1,64 @@
-from typing import Literal, Sequence, TypedDict
+from typing import Literal, Optional, Sequence, TypedDict
 
-RedactionMode = Literal["placeholder", "mask"]
+MaskStrategy = Literal["placeholder", "fixed", "length_preserving"]
 BuiltinDetector = Literal["email", "phone", "credit_card"]
 
-class Match(TypedDict):
-    type: str
+class RawDetection(TypedDict):
     start: int
     end: int
-    text: str
+    value: str
+    entity_type: str
+    detector_name: str
     replacement: str
+
+class RawRedactionResult(TypedDict):
+    text: str
+    detections: list[RawDetection]
 
 class Redactor:
     def __init__(
         self,
-        custom_detectors: dict[str, str] | None = None,
-        placeholders: dict[str, str] | None = None,
-        mode: RedactionMode = "placeholder",
-        detectors: Sequence[BuiltinDetector] | None = None,
-        default_detectors: bool = False,
+        detectors: Optional[Sequence[BuiltinDetector]] = None,
+        mask_strategy: MaskStrategy = "placeholder",
+        placeholder_format: str = "{{{entity_type}}}",
+        mask_char: str = "*",
+        fixed_mask: str = "***",
     ) -> None: ...
-    def detect(self, text: str) -> list[Match]: ...
-    def redact(self, text: str, mode: RedactionMode | None = None) -> str: ...
-    def add_detector(self, name: str, regex: str) -> None: ...
-    def replace_detector(self, name: str, regex: str) -> None: ...
-    def remove_detector(self, name: str) -> None: ...
+    def detect(self, text: str) -> list[RawDetection]: ...
+    def redact(self, text: str) -> str: ...
+    def redact_with_report(self, text: str) -> RawRedactionResult: ...
+    def register_detector(
+        self,
+        name: str,
+        pattern: str,
+        placeholder: Optional[str] = None,
+        enabled: bool = True,
+        priority: int = 100,
+    ) -> None: ...
 
-def detect(text: str) -> list[Match]: ...
-def redact(text: str, mode: RedactionMode = "placeholder") -> str: ...
+def detect(
+    text: str,
+    detectors: Optional[Sequence[BuiltinDetector]] = None,
+    mask_strategy: MaskStrategy = "placeholder",
+    placeholder_format: str = "{{{entity_type}}}",
+    mask_char: str = "*",
+    fixed_mask: str = "***",
+) -> list[RawDetection]: ...
+
+def redact(
+    text: str,
+    detectors: Optional[Sequence[BuiltinDetector]] = None,
+    mask_strategy: MaskStrategy = "placeholder",
+    placeholder_format: str = "{{{entity_type}}}",
+    mask_char: str = "*",
+    fixed_mask: str = "***",
+) -> str: ...
+
+def redact_with_report(
+    text: str,
+    detectors: Optional[Sequence[BuiltinDetector]] = None,
+    mask_strategy: MaskStrategy = "placeholder",
+    placeholder_format: str = "{{{entity_type}}}",
+    mask_char: str = "*",
+    fixed_mask: str = "***",
+) -> RawRedactionResult: ...

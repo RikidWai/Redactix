@@ -1,14 +1,14 @@
 # Redactix
 
-Redactix is a lightweight Rust-backed Python library for detecting and redacting common PII in text. The MVP focuses on a small, predictable detector set: email addresses, phone numbers, and Luhn-valid credit card numbers.
+Redactix is a lightweight Rust-backed Python library for detecting and redacting common PII in text.
 
-## Features
+The default detector set covers:
 
-- Detects email addresses, phone numbers, and credit card numbers that pass Luhn validation.
-- Redacts with double-curly placeholders by default: `{{EMAIL}}`, `{{PHONE}}`, `{{CREDIT_CARD}}`.
-- Supports mask redaction with one `*` per detected Python character.
-- Provides a configurable `Redactor` for choosing built-in detectors, adding custom regex detectors, overriding placeholders, and setting a default redaction mode.
-- Returns Python character indexes in detection results, not UTF-8 byte offsets.
+- `email`
+- `phone`
+- `credit_card`
+
+Credit card candidates are validated with Luhn checks. Phone candidates use regex matching plus basic digit sanity checks.
 
 ## Installation
 
@@ -18,192 +18,111 @@ Build and install the local extension with maturin:
 uv run maturin develop
 ```
 
-After installation:
-
-```bash
-uv run python -c "import redactix; print(redactix.redact('Email alex@example.com'))"
-```
-
 ## Quick Start
 
 ```python
 import redactix
 
-text = "Contact me at alex@example.com or +1 415-555-2671. Card: 4111 1111 1111 1111."
+redactor = redactix.Redactor(
+    detectors=["email", "credit_card"],
+    mask_strategy="placeholder",
+)
 
-matches = redactix.detect(text)
-redacted = redactix.redact(text)
-masked = redactix.redact(text, mode="mask")
+redactor.register_detector(
+    name="employee_id",
+    pattern=r"\bEMP\d{6}\b",
+    placeholder="{{EMPLOYEE_ID}}",
+    enabled=True,
+)
+
+cleaned = redactor.redact(text)
+detections = redactor.detect(text)
+report = redactor.redact_with_report(text)
 ```
 
-`matches` contains dictionaries with the PII type, character span, original text, and replacement:
-
-```python
-[
-    {
-        "type": "email",
-        "start": 14,
-        "end": 30,
-        "text": "alex@example.com",
-        "replacement": "{{EMAIL}}",
-    }
-]
-```
-
-Placeholder redaction:
+`redact()` returns only redacted text:
 
 ```python
 redactix.redact("Email alex@example.com")
 # "Email {{EMAIL}}"
 ```
 
-Mask redaction:
+`detect()` returns structured `Detection` dataclasses:
 
 ```python
-redactix.redact("Email alex@example.com", mode="mask")
-# "Email ****************"
+[
+    redactix.Detection(
+        start=6,
+        end=22,
+        value="alex@example.com",
+        entity_type="EMAIL",
+        detector_name="email",
+        replacement="{{EMAIL}}",
+    )
+]
 ```
 
-## Custom Redactors
+`redact_with_report()` returns a `RedactionResult` dataclass with both the cleaned text and detections used for redaction.
 
-Use `Redactor` when you need to choose which built-in PII types to detect, add custom regex detectors, set custom placeholders, or change the default mode.
-
-`Redactor()` does not enable built-in detectors by default. Enable every built-in with `default_detectors=True`:
-
-```python
-redactor = redactix.Redactor(default_detectors=True)
-```
-
-Supported built-in detectors are:
-
-- `email`
-- `phone`
-- `credit_card`
-
-Choose an ordered subset of built-ins with `detectors`:
-
-```python
-redactor = redactix.Redactor(detectors=["credit_card"])
-
-redactor.redact("Email alex@example.com. Card: 4111 1111 1111 1111.")
-# "Email alex@example.com. Card: {{CREDIT_CARD}}."
-```
-
-Custom-only redactors can omit `detectors`:
-
-```python
-redactor = redactix.Redactor(
-    custom_detectors={"name": r"\bJane Doe\b"},
-)
-
-redactor.redact("Jane Doe emailed alex@example.com")
-# "{{NAME}} emailed alex@example.com"
-```
-
-```python
-import redactix
-
-redactor = redactix.Redactor(
-    custom_detectors={"name": r"\bJane Doe\b"},
-    placeholders={"name": "{{PERSON}}", "email": "{{HIDDEN_EMAIL}}"},
-    default_detectors=True,
-)
-
-redactor.detect("Jane Doe emailed alex@example.com")
-redactor.redact("Jane Doe emailed alex@example.com")
-# "{{PERSON}} emailed {{HIDDEN_EMAIL}}"
-```
-
-Detector names must be unique. Use `add_detector()` for new custom regex detectors, `replace_detector()` when intentionally overriding an active detector, and `remove_detector()` to disable an active built-in or custom detector:
-
-```python
-redactor = redactix.Redactor(detectors=["email"])
-redactor.add_detector("name", r"\bJane Doe\b")
-redactor.replace_detector("email", r"alex@example\.com")
-redactor.remove_detector("name")
-```
-
-Set mask mode as the default:
-
-```python
-redactor = redactix.Redactor(
-    custom_detectors={"name": r"\bJane Doe\b"},
-    mode="mask",
-)
-
-redactor.redact("Jane Doe emailed alex@example.com")
-# "******** emailed ****************"
-```
-
-Override the mode per call:
-
-```python
-redactor.redact("Jane Doe emailed alex@example.com", mode="placeholder")
-# "{{NAME}} emailed {{EMAIL}}"
-```
-
-## API
-
-```python
-redactix.detect(text: str) -> list[dict]
-redactix.redact(text: str, mode: str = "placeholder") -> str
-```
+## Redactor API
 
 ```python
 redactix.Redactor(
-    custom_detectors: dict[str, str] | None = None,
-    placeholders: dict[str, str] | None = None,
-    mode: str = "placeholder",
-    detectors: list[str] | None = None,
-    default_detectors: bool = False,
+    detectors: Optional[Sequence[str]] = None,
+    mask_strategy: "placeholder" | "fixed" | "length_preserving" = "placeholder",
+    placeholder_format: str = "{{{entity_type}}}",
+    mask_char: str = "*",
+    fixed_mask: str = "***",
 )
 ```
 
-`default_detectors=True` enables all built-in detectors. `detectors=[...]` enables the named built-ins in the given order. `detectors=None` and `detectors=[]` both leave built-ins disabled. Unsupported or duplicate detector names raise `ValueError`. `default_detectors=True` cannot be combined with `detectors`.
+`detectors=None` enables all built-in detectors. Pass a subset such as `["email"]` to enable only those detectors, or `[]` to start with no built-ins and register only custom detectors.
 
-Supported redaction modes are `placeholder` and `mask`.
+## Masking Strategies
 
-## Benchmark
+- `placeholder` replaces matches with stable placeholders such as `{{EMAIL}}`.
+- `fixed` replaces every match with `fixed_mask`, which defaults to `***`.
+- `length_preserving` replaces each Python character in the match with `mask_char`.
 
-Redactix includes a local benchmark script that compares Redactix redaction with Scrubadub redaction on the same repeated text payload.
+Examples:
 
-Install Redactix first:
+```python
+redactix.redact("Email alex@example.com", mask_strategy="fixed")
+# "Email ***"
 
-```bash
-uv run maturin develop --release
+redactix.redact("Email alex@example.com", mask_strategy="length_preserving")
+# "Email ****************"
 ```
 
-Install Scrubadub only if you want the comparison row:
+## Custom Detectors
 
-```bash
-uv pip install scrubadub
+Register custom regex-based detectors on a `Redactor`:
+
+```python
+redactor = redactix.Redactor(detectors=[])
+redactor.register_detector(
+    name="employee_id",
+    pattern=r"\bEMP\d{6}\b",
+    placeholder="{{EMPLOYEE_ID}}",
+    enabled=True,
+    priority=100,
+)
 ```
 
-Run the benchmark:
+Detector names are normalized to lowercase identifiers for `detector_name`; placeholders and entity types use uppercase forms such as `EMPLOYEE_ID`.
 
-```bash
-uv run python benchmarks/compare_scrubadub.py --iterations 100 --repetitions 100
-```
+Overlapping matches are resolved deterministically:
 
-The output reports mean latency, median latency, and approximate characters per second:
-
-```text
-Payload: 24,599 characters
-Iterations: 100
-Library   | Mean ms | Median ms | Chars/sec
---------- | ------- | --------- | ---------
-Redactix  | ...
-Scrubadub | ...
-```
-
-This benchmark measures runtime only. The libraries do not have identical detector sets, matching rules, or replacement formats, so use the numbers as a rough throughput comparison rather than a claim of identical behavior.
+- Higher `priority` wins.
+- If priority is equal, the longer match wins.
+- Remaining ties are resolved by source position and registration order.
 
 ## Development
 
 Run tests:
 
 ```bash
-pytest
+uv run pytest
 ```
 
 Run Rust checks:

@@ -1,10 +1,9 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use crate::redactor::RedactionMode;
 use crate::types::PiiMatch;
 
-pub fn apply_redaction(text: &str, matches: &[PiiMatch], mode: RedactionMode) -> PyResult<String> {
+pub fn apply_redaction(text: &str, matches: &[PiiMatch]) -> PyResult<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut output = String::with_capacity(text.len());
     let mut cursor = 0usize;
@@ -18,14 +17,7 @@ pub fn apply_redaction(text: &str, matches: &[PiiMatch], mode: RedactionMode) ->
         }
 
         output.extend(chars[cursor..pii_match.start].iter());
-
-        match mode {
-            RedactionMode::Placeholder => output.push_str(&pii_match.replacement),
-            RedactionMode::Mask => {
-                output.push_str(&"*".repeat(pii_match.text.chars().count()));
-            }
-        }
-
+        output.push_str(&pii_match.replacement);
         cursor = pii_match.end;
     }
 

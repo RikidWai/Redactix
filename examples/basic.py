@@ -1,14 +1,21 @@
 import redactix
 
 
-text = "Contact me at alex@example.com or +1 415-555-2671. Card: 4111 1111 1111 1111."
-
-print(redactix.detect(text))
-print(redactix.redact(text))
-print(redactix.redact(text, mode="mask"))
+text = "Employee EMP123456 used alex@example.com and 4111 1111 1111 1111."
 
 redactor = redactix.Redactor(
-    custom_detectors={"name": r"\bJane Doe\b"},
-    default_detectors=True,
+    detectors=["email", "credit_card"],
+    mask_strategy="placeholder",
 )
-print(redactor.redact("Jane Doe emailed alex@example.com"))
+redactor.register_detector(
+    name="employee_id",
+    pattern=r"\bEMP\d{6}\b",
+    placeholder="{{EMPLOYEE_ID}}",
+)
+
+print(redactor.detect(text))
+print(redactor.redact(text))
+print(redactor.redact_with_report(text))
+
+fixed = redactix.Redactor(mask_strategy="fixed", fixed_mask="[redacted]")
+print(fixed.redact("Email alex@example.com"))
