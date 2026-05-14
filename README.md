@@ -7,7 +7,7 @@ Redactix is a lightweight Rust-backed Python library for detecting and redacting
 - Detects email addresses, phone numbers, and credit card numbers that pass Luhn validation.
 - Redacts with double-curly placeholders by default: `{{EMAIL}}`, `{{PHONE}}`, `{{CREDIT_CARD}}`.
 - Supports mask redaction with one `*` per detected Python character.
-- Provides a configurable `Redactor` for choosing built-in detectors, adding custom regex patterns, overriding placeholders, and setting a default redaction mode.
+- Provides a configurable `Redactor` for choosing built-in detectors, adding custom regex detectors, overriding placeholders, and setting a default redaction mode.
 - Returns Python character indexes in detection results, not UTF-8 byte offsets.
 
 ## Installation
@@ -66,34 +66,34 @@ redactix.redact("Email alex@example.com", mode="mask")
 
 ## Custom Redactors
 
-Use `Redactor` when you need to choose which built-in PII types to detect, add custom text patterns, set custom placeholders, or change the default mode.
+Use `Redactor` when you need to choose which built-in PII types to detect, add custom regex detectors, set custom placeholders, or change the default mode.
 
-`Redactor()` does not enable built-in patterns by default. Enable every built-in with `default_patterns=True`:
+`Redactor()` does not enable built-in detectors by default. Enable every built-in with `default_detectors=True`:
 
 ```python
-redactor = redactix.Redactor(default_patterns=True)
+redactor = redactix.Redactor(default_detectors=True)
 ```
 
-Supported built-in patterns are:
+Supported built-in detectors are:
 
 - `email`
 - `phone`
 - `credit_card`
 
-Choose an ordered subset of built-ins with `patterns`:
+Choose an ordered subset of built-ins with `detectors`:
 
 ```python
-redactor = redactix.Redactor(patterns=["credit_card"])
+redactor = redactix.Redactor(detectors=["credit_card"])
 
 redactor.redact("Email alex@example.com. Card: 4111 1111 1111 1111.")
 # "Email alex@example.com. Card: {{CREDIT_CARD}}."
 ```
 
-Custom-only redactors can omit `patterns`:
+Custom-only redactors can omit `detectors`:
 
 ```python
 redactor = redactix.Redactor(
-    custom_patterns={"name": r"\bJane Doe\b"},
+    custom_detectors={"name": r"\bJane Doe\b"},
 )
 
 redactor.redact("Jane Doe emailed alex@example.com")
@@ -104,9 +104,9 @@ redactor.redact("Jane Doe emailed alex@example.com")
 import redactix
 
 redactor = redactix.Redactor(
-    custom_patterns={"name": r"\bJane Doe\b"},
+    custom_detectors={"name": r"\bJane Doe\b"},
     placeholders={"name": "{{PERSON}}", "email": "{{HIDDEN_EMAIL}}"},
-    default_patterns=True,
+    default_detectors=True,
 )
 
 redactor.detect("Jane Doe emailed alex@example.com")
@@ -114,20 +114,20 @@ redactor.redact("Jane Doe emailed alex@example.com")
 # "{{PERSON}} emailed {{HIDDEN_EMAIL}}"
 ```
 
-Pattern names must be unique. Use `add_pattern()` for new custom patterns, `replace_pattern()` when intentionally overriding an active pattern, and `remove_pattern()` to disable an active built-in or custom pattern:
+Detector names must be unique. Use `add_detector()` for new custom regex detectors, `replace_detector()` when intentionally overriding an active detector, and `remove_detector()` to disable an active built-in or custom detector:
 
 ```python
-redactor = redactix.Redactor(patterns=["email"])
-redactor.add_pattern("name", r"\bJane Doe\b")
-redactor.replace_pattern("email", r"alex@example\.com")
-redactor.remove_pattern("name")
+redactor = redactix.Redactor(detectors=["email"])
+redactor.add_detector("name", r"\bJane Doe\b")
+redactor.replace_detector("email", r"alex@example\.com")
+redactor.remove_detector("name")
 ```
 
 Set mask mode as the default:
 
 ```python
 redactor = redactix.Redactor(
-    custom_patterns={"name": r"\bJane Doe\b"},
+    custom_detectors={"name": r"\bJane Doe\b"},
     mode="mask",
 )
 
@@ -151,15 +151,15 @@ redactix.redact(text: str, mode: str = "placeholder") -> str
 
 ```python
 redactix.Redactor(
-    custom_patterns: dict[str, str] | None = None,
+    custom_detectors: dict[str, str] | None = None,
     placeholders: dict[str, str] | None = None,
     mode: str = "placeholder",
-    patterns: list[str] | None = None,
-    default_patterns: bool = False,
+    detectors: list[str] | None = None,
+    default_detectors: bool = False,
 )
 ```
 
-`default_patterns=True` enables all built-in patterns. `patterns=[...]` enables the named built-ins in the given order. `patterns=None` and `patterns=[]` both leave built-ins disabled. Unsupported or duplicate pattern names raise `ValueError`. `default_patterns=True` cannot be combined with `patterns`.
+`default_detectors=True` enables all built-in detectors. `detectors=[...]` enables the named built-ins in the given order. `detectors=None` and `detectors=[]` both leave built-ins disabled. Unsupported or duplicate detector names raise `ValueError`. `default_detectors=True` cannot be combined with `detectors`.
 
 Supported redaction modes are `placeholder` and `mask`.
 

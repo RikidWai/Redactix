@@ -8,7 +8,7 @@ print(redactix.redact(text))
 print(redactix.redact(text, mode="mask"))
 
 redactor = redactix.Redactor(
-    custom_patterns={"name": r"\bJane Doe\b"},
-    default_patterns=True,
+    custom_detectors={"name": r"\bJane Doe\b"},
+    default_detectors=True,
 )
 print(redactor.redact("Jane Doe emailed alex@example.com"))

@@ -13,70 +13,70 @@ pub enum RedactionMode {
 }
 
 pub struct Redactor {
-    patterns: Vec<ActivePattern>,
+    detectors: Vec<ActiveDetector>,
     placeholders: HashMap<String, String>,
     pub default_mode: RedactionMode,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum BuiltinPattern {
+pub enum BuiltinDetector {
     Email,
     Phone,
     CreditCard,
 }
 
-struct CustomPattern {
+struct CustomDetector {
     type_name: String,
     regex: Py<PyAny>,
 }
 
-enum ActivePattern {
-    Builtin(BuiltinPattern),
-    Custom(CustomPattern),
+enum ActiveDetector {
+    Builtin(BuiltinDetector),
+    Custom(CustomDetector),
 }
 
 impl Redactor {
     pub fn new(
         py: Python<'_>,
-        custom_patterns: Option<HashMap<String, String>>,
+        custom_detectors: Option<HashMap<String, String>>,
         placeholders: Option<HashMap<String, String>>,
         default_mode: RedactionMode,
-        builtin_patterns: Option<Vec<String>>,
-        default_patterns: bool,
+        builtin_detectors: Option<Vec<String>>,
+        default_detectors: bool,
     ) -> PyResult<Self> {
-        if default_patterns && builtin_patterns.is_some() {
+        if default_detectors && builtin_detectors.is_some() {
             return Err(PyValueError::new_err(
-                "default_patterns=True cannot be combined with patterns",
+                "default_detectors=True cannot be combined with detectors",
             ));
         }
 
-        let mut patterns: Vec<ActivePattern> = if default_patterns {
-            BuiltinPattern::all()
+        let mut detectors: Vec<ActiveDetector> = if default_detectors {
+            BuiltinDetector::all()
                 .into_iter()
-                .map(ActivePattern::Builtin)
+                .map(ActiveDetector::Builtin)
                 .collect()
         } else {
-            validate_builtin_patterns(builtin_patterns)?
+            validate_builtin_detectors(builtin_detectors)?
                 .into_iter()
-                .map(ActivePattern::Builtin)
+                .map(ActiveDetector::Builtin)
                 .collect()
         };
 
-        if let Some(custom_patterns) = custom_patterns {
-            for (type_name, pattern) in custom_patterns {
-                if contains_pattern(&patterns, &type_name) {
+        if let Some(custom_detectors) = custom_detectors {
+            for (type_name, regex) in custom_detectors {
+                if contains_detector(&detectors, &type_name) {
                     return Err(PyValueError::new_err(format!(
-                        "pattern '{type_name}' already exists"
+                        "detector '{type_name}' already exists"
                     )));
                 }
-                patterns.push(ActivePattern::Custom(CustomPattern::new(
-                    py, type_name, pattern,
+                detectors.push(ActiveDetector::Custom(CustomDetector::new(
+                    py, type_name, regex,
                 )?));
             }
         }
 
         Ok(Self {
-            patterns,
+            detectors,
             placeholders: placeholders.unwrap_or_default(),
             default_mode,
         })
@@ -85,8 +85,8 @@ impl Redactor {
     pub fn detect(&self, text: &str, py: Python<'_>) -> PyResult<Vec<PiiMatch>> {
         let mut matches = Vec::new();
 
-        for pattern in &self.patterns {
-            matches.extend(pattern.detect(text, py, &self.placeholders)?);
+        for detector in &self.detectors {
+            matches.extend(detector.detect(text, py, &self.placeholders)?);
         }
 
         Ok(detectors::sort_and_remove_overlaps(matches))
@@ -99,66 +99,66 @@ impl Redactor {
             .collect()
     }
 
-    pub fn add_pattern(
+    pub fn add_detector(
         &mut self,
         py: Python<'_>,
         type_name: String,
-        pattern: String,
+        regex: String,
     ) -> PyResult<()> {
-        validate_custom_pattern_name(&type_name)?;
-        if contains_pattern(&self.patterns, &type_name) {
+        validate_custom_detector_name(&type_name)?;
+        if contains_detector(&self.detectors, &type_name) {
             return Err(PyValueError::new_err(format!(
-                "pattern '{type_name}' already exists"
+                "detector '{type_name}' already exists"
             )));
         }
-        let custom_pattern = CustomPattern::new(py, type_name, pattern)?;
-        self.patterns.push(ActivePattern::Custom(custom_pattern));
+        let custom_detector = CustomDetector::new(py, type_name, regex)?;
+        self.detectors.push(ActiveDetector::Custom(custom_detector));
         Ok(())
     }
 
-    pub fn replace_pattern(
+    pub fn replace_detector(
         &mut self,
         py: Python<'_>,
         type_name: String,
-        pattern: String,
+        regex: String,
     ) -> PyResult<()> {
-        validate_custom_pattern_name(&type_name)?;
-        let Some(index) = find_pattern_index(&self.patterns, &type_name) else {
+        validate_custom_detector_name(&type_name)?;
+        let Some(index) = find_detector_index(&self.detectors, &type_name) else {
             return Err(PyValueError::new_err(format!(
-                "pattern '{type_name}' does not exist"
+                "detector '{type_name}' does not exist"
             )));
         };
-        self.patterns[index] = ActivePattern::Custom(CustomPattern::new(py, type_name, pattern)?);
+        self.detectors[index] = ActiveDetector::Custom(CustomDetector::new(py, type_name, regex)?);
         Ok(())
     }
 
-    pub fn remove_pattern(&mut self, type_name: &str) -> PyResult<()> {
-        validate_custom_pattern_name(type_name)?;
-        let Some(index) = find_pattern_index(&self.patterns, type_name) else {
+    pub fn remove_detector(&mut self, type_name: &str) -> PyResult<()> {
+        validate_custom_detector_name(type_name)?;
+        let Some(index) = find_detector_index(&self.detectors, type_name) else {
             return Err(PyValueError::new_err(format!(
-                "pattern '{type_name}' does not exist"
+                "detector '{type_name}' does not exist"
             )));
         };
-        self.patterns.remove(index);
+        self.detectors.remove(index);
         Ok(())
     }
 }
 
-impl CustomPattern {
-    fn new(py: Python<'_>, type_name: String, pattern: String) -> PyResult<Self> {
-        validate_custom_pattern_name(&type_name)?;
+impl CustomDetector {
+    fn new(py: Python<'_>, type_name: String, regex: String) -> PyResult<Self> {
+        validate_custom_detector_name(&type_name)?;
         Ok(Self {
-            regex: compile_regex(py, &type_name, &pattern)?,
+            regex: compile_regex(py, &type_name, &regex)?,
             type_name,
         })
     }
 }
 
-impl ActivePattern {
+impl ActiveDetector {
     fn type_name(&self) -> &str {
         match self {
-            ActivePattern::Builtin(builtin_pattern) => builtin_pattern.name(),
-            ActivePattern::Custom(custom_pattern) => &custom_pattern.type_name,
+            ActiveDetector::Builtin(builtin_detector) => builtin_detector.name(),
+            ActiveDetector::Custom(custom_detector) => &custom_detector.type_name,
         }
     }
 
@@ -169,15 +169,15 @@ impl ActivePattern {
         placeholders: &HashMap<String, String>,
     ) -> PyResult<Vec<PiiMatch>> {
         match self {
-            ActivePattern::Builtin(builtin_pattern) => Ok(detectors::detect_builtin_pattern(
+            ActiveDetector::Builtin(builtin_detector) => Ok(detectors::detect_builtin_detector(
                 text,
-                *builtin_pattern,
+                *builtin_detector,
                 placeholders,
             )),
-            ActivePattern::Custom(custom_pattern) => detectors::detect_with_python_regex(
+            ActiveDetector::Custom(custom_detector) => detectors::detect_with_python_regex(
                 py,
-                &custom_pattern.type_name,
-                &custom_pattern.regex,
+                &custom_detector.type_name,
+                &custom_detector.regex,
                 text,
                 placeholders,
             ),
@@ -185,7 +185,7 @@ impl ActivePattern {
     }
 }
 
-impl BuiltinPattern {
+impl BuiltinDetector {
     pub fn all() -> Vec<Self> {
         vec![Self::Email, Self::Phone, Self::CreditCard]
     }
@@ -196,7 +196,7 @@ impl BuiltinPattern {
             "phone" => Ok(Self::Phone),
             "credit_card" => Ok(Self::CreditCard),
             _ => Err(PyValueError::new_err(format!(
-                "invalid built-in pattern '{name}'; expected one of: email, phone, credit_card"
+                "invalid built-in detector '{name}'; expected one of: email, phone, credit_card"
             ))),
         }
     }
@@ -210,23 +210,23 @@ impl BuiltinPattern {
     }
 }
 
-fn validate_builtin_patterns(patterns: Option<Vec<String>>) -> PyResult<Vec<BuiltinPattern>> {
-    let Some(patterns) = patterns else {
+fn validate_builtin_detectors(detectors: Option<Vec<String>>) -> PyResult<Vec<BuiltinDetector>> {
+    let Some(detectors) = detectors else {
         return Ok(Vec::new());
     };
 
     let mut validated = Vec::new();
-    for pattern in patterns {
-        let builtin_pattern = BuiltinPattern::from_name(&pattern)?;
+    for detector in detectors {
+        let builtin_detector = BuiltinDetector::from_name(&detector)?;
         if validated
             .iter()
-            .any(|existing: &BuiltinPattern| existing.name() == builtin_pattern.name())
+            .any(|existing: &BuiltinDetector| existing.name() == builtin_detector.name())
         {
             return Err(PyValueError::new_err(format!(
-                "pattern '{pattern}' already exists"
+                "detector '{detector}' already exists"
             )));
         }
-        validated.push(builtin_pattern);
+        validated.push(builtin_detector);
     }
     Ok(validated)
 }
@@ -252,28 +252,28 @@ pub fn replacement_for(type_name: &str, placeholders: &HashMap<String, String>) 
         .unwrap_or_else(|| default_placeholder(type_name))
 }
 
-fn validate_custom_pattern_name(type_name: &str) -> PyResult<()> {
+fn validate_custom_detector_name(type_name: &str) -> PyResult<()> {
     if type_name.trim().is_empty() {
         return Err(PyValueError::new_err(
-            "custom pattern names cannot be empty",
+            "custom detector names cannot be empty",
         ));
     }
     Ok(())
 }
 
-fn contains_pattern(patterns: &[ActivePattern], type_name: &str) -> bool {
-    find_pattern_index(patterns, type_name).is_some()
+fn contains_detector(detectors: &[ActiveDetector], type_name: &str) -> bool {
+    find_detector_index(detectors, type_name).is_some()
 }
 
-fn find_pattern_index(patterns: &[ActivePattern], type_name: &str) -> Option<usize> {
-    patterns
+fn find_detector_index(detectors: &[ActiveDetector], type_name: &str) -> Option<usize> {
+    detectors
         .iter()
-        .position(|pattern| pattern.type_name() == type_name)
+        .position(|detector| detector.type_name() == type_name)
 }
 
-fn compile_regex(py: Python<'_>, type_name: &str, pattern: &str) -> PyResult<Py<PyAny>> {
+fn compile_regex(py: Python<'_>, type_name: &str, regex: &str) -> PyResult<Py<PyAny>> {
     let re = py.import("re")?;
-    re.call_method1("compile", (pattern,))
+    re.call_method1("compile", (regex,))
         .map(|compiled| compiled.unbind())
         .map_err(|err| {
             PyValueError::new_err(format!(

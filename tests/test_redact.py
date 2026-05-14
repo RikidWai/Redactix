@@ -32,5 +32,5 @@ def test_invalid_mode_module_function():
 
 
 def test_mask_length_uses_python_character_length():
-    redactor = redactix.Redactor(custom_patterns={"name": "Jane 😄"}, default_patterns=True)
+    redactor = redactix.Redactor(custom_detectors={"name": "Jane 😄"}, default_detectors=True)
     assert redactor.redact("Jane 😄 emailed alex@example.com", mode="mask") == "****** emailed ****************"

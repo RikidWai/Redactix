@@ -7,18 +7,18 @@ use std::collections::HashMap;
 use pyo3::prelude::*;
 use regex::Regex;
 
-use crate::redactor::{BuiltinPattern, replacement_for};
+use crate::redactor::{BuiltinDetector, replacement_for};
 use crate::types::PiiMatch;
 
-pub fn detect_builtin_pattern(
+pub fn detect_builtin_detector(
     text: &str,
-    pattern: BuiltinPattern,
+    detector: BuiltinDetector,
     placeholders: &HashMap<String, String>,
 ) -> Vec<PiiMatch> {
-    match pattern {
-        BuiltinPattern::Email => email::detect(text, placeholders),
-        BuiltinPattern::Phone => phone::detect(text, placeholders),
-        BuiltinPattern::CreditCard => credit_card::detect(text, placeholders),
+    match detector {
+        BuiltinDetector::Email => email::detect(text, placeholders),
+        BuiltinDetector::Phone => phone::detect(text, placeholders),
+        BuiltinDetector::CreditCard => credit_card::detect(text, placeholders),
     }
 }
 

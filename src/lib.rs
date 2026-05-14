@@ -34,24 +34,24 @@ struct PyRedactor {
 #[pymethods]
 impl PyRedactor {
     #[new]
-    #[pyo3(signature = (custom_patterns = None, placeholders = None, mode = "placeholder", patterns = None, default_patterns = false))]
+    #[pyo3(signature = (custom_detectors = None, placeholders = None, mode = "placeholder", detectors = None, default_detectors = false))]
     fn new(
         py: Python<'_>,
-        custom_patterns: Option<HashMap<String, String>>,
+        custom_detectors: Option<HashMap<String, String>>,
         placeholders: Option<HashMap<String, String>>,
         mode: &str,
-        patterns: Option<Vec<String>>,
-        default_patterns: bool,
+        detectors: Option<Vec<String>>,
+        default_detectors: bool,
     ) -> PyResult<Self> {
         let mode = validate_mode(mode)?;
         Ok(Self {
             inner: InnerRedactor::new(
                 py,
-                custom_patterns,
+                custom_detectors,
                 placeholders,
                 mode,
-                patterns,
-                default_patterns,
+                detectors,
+                default_detectors,
             )?,
         })
     }
@@ -70,16 +70,16 @@ impl PyRedactor {
         apply_redaction(text, &matches, mode)
     }
 
-    fn add_pattern(&mut self, py: Python<'_>, name: String, pattern: String) -> PyResult<()> {
-        self.inner.add_pattern(py, name, pattern)
+    fn add_detector(&mut self, py: Python<'_>, name: String, regex: String) -> PyResult<()> {
+        self.inner.add_detector(py, name, regex)
     }
 
-    fn replace_pattern(&mut self, py: Python<'_>, name: String, pattern: String) -> PyResult<()> {
-        self.inner.replace_pattern(py, name, pattern)
+    fn replace_detector(&mut self, py: Python<'_>, name: String, regex: String) -> PyResult<()> {
+        self.inner.replace_detector(py, name, regex)
     }
 
-    fn remove_pattern(&mut self, name: &str) -> PyResult<()> {
-        self.inner.remove_pattern(name)
+    fn remove_detector(&mut self, name: &str) -> PyResult<()> {
+        self.inner.remove_detector(name)
     }
 }
 
