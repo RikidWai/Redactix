@@ -117,23 +117,10 @@ Overlapping matches are resolved deterministically:
 - If priority is equal, the longer match wins.
 - Remaining ties are resolved by source position and registration order.
 
-## Development
+## Contributing
 
-Run tests:
+Development setup, test commands, and contribution guidance are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-```bash
-uv run pytest
-```
+## License
 
-Run Rust checks:
-
-```bash
-cargo fmt --check
-cargo check
-```
-
-Build a wheel:
-
-```bash
-uv run maturin build --release
-```
+Redactix is distributed under the MIT License. See [LICENSE](LICENSE) for details.

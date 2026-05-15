@@ -6,8 +6,31 @@ readme = "README.md"
 authors = [
     { name = "Redactix Contributors" }
 ]
+license = "MIT"
 requires-python = ">=3.9"
 dependencies = []
+keywords = ["pii", "redaction", "privacy", "text-processing", "rust"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Security",
+    "Topic :: Text Processing",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/RikidWai/Redactix"
+Repository = "https://github.com/RikidWai/Redactix"
+Issues = "https://github.com/RikidWai/Redactix/issues"
 
 [tool.maturin]
 module-name = "redactix._core"

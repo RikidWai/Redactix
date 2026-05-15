@@ -2,6 +2,12 @@
 name = "redactix"
 version = "0.1.0"
 edition = "2024"
+description = "Rust-backed Python library for detecting and redacting common PII in text"
+license = "MIT"
+repository = "https://github.com/RikidWai/Redactix"
+readme = "README.md"
+keywords = ["pii", "redaction", "privacy", "python"]
+categories = ["text-processing"]
 
 [lib]
 name = "_core"
