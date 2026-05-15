@@ -1,14 +1,32 @@
 # Redactix
 
+<p align="center">
+  <img src="assets/redactix-logo.png" alt="Redactix logo" width="320">
+</p>
+
 Redactix is a lightweight Rust-backed Python library for detecting and redacting common PII in text.
 
-The default detector set covers:
+- Rust-backed speed for high-throughput text redaction.
+- Simple Python API for detection, redaction, and reporting.
+- Lightweight design focused on common structured PII and custom regex detectors.
 
-- `email`
-- `phone`
-- `credit_card`
+## Default Detectors
 
-Credit card candidates are validated with Luhn checks. Phone candidates use regex matching plus basic digit sanity checks.
+| Name | Detection method | Validator |
+| --- | --- | --- |
+| `email` | Regex | `NULL` |
+| `phone` | Regex | Boundary checks; 10-15 digits; rejects repeated single-digit numbers |
+| `credit_card` | Regex | Luhn checksum; 13-19 digits |
+
+## Comparison
+
+Redactix is focused on lightweight, deterministic text redaction for common structured PII. It is intentionally smaller than full PII detection frameworks.
+
+| Library | Difference |
+| --- | --- |
+| **Redactix** | Lightweight Rust-backed Python library with a simple API, built-in regex/validator detectors, custom regex detectors, and deterministic overlap resolution. |
+| **Microsoft Presidio** | Much broader framework: NLP, regex, checksums, context-aware recognizers, multilingual support, text/images/structured data, Docker/PySpark/K8s options. More powerful but heavier. Source: [Presidio README](https://github.com/microsoft/presidio). |
+| **scrubadub** | Python free-text scrubber with more built-in PII types: names, addresses, DOBs, URLs, credentials, SSNs, tax IDs, etc., plus optional/external detectors. Source: [scrubadub docs](https://scrubadub.readthedocs.io/en/stable/). |
 
 ## Installation
 
@@ -116,6 +134,11 @@ Overlapping matches are resolved deterministically:
 - Higher `priority` wins.
 - If priority is equal, the longer match wins.
 - Remaining ties are resolved by source position and registration order.
+
+## Roadmap
+
+- Add more common PII detectors and localized PII patterns.
+- Add optional AI-powered NER detection for advanced use cases while keeping the core library lightweight.
 
 ## Contributing
 
