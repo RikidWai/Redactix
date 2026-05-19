@@ -6,6 +6,8 @@
 
 Redactix is a lightweight Rust-backed Python library for detecting and redacting common PII in text.
 
+> Redactix is currently an alpha release. The detector set is intentionally small, and public APIs may change before a stable `1.0` release.
+
 - Rust-backed speed for high-throughput text redaction.
 - Simple Python API for detection, redaction, and reporting.
 - Lightweight design focused on common structured PII and custom regex detectors.
