@@ -1,18 +1,50 @@
 # Redactix
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/RikidWai/Redactix/main/assets/redactix-logo.png" alt="Redactix logo" width="320">
+</p>
+
 Redactix is a lightweight Rust-backed Python library for detecting and redacting common PII in text.
 
-The default detector set covers:
+> Redactix is currently an alpha release. The detector set is intentionally small, and public APIs may change before a stable `1.0` release.
 
-- `email`
-- `phone`
-- `credit_card`
+- Rust-backed speed for high-throughput text redaction.
+- Simple Python API for detection, redaction, and reporting.
+- Lightweight design focused on common structured PII and custom regex detectors.
 
-Credit card candidates are validated with Luhn checks. Phone candidates use regex matching plus basic digit sanity checks.
+## Default Detectors
+
+| Name          | Detection method | Validator                                                            |
+| ------------- | ---------------- | -------------------------------------------------------------------- |
+| `email`       | Regex            | `NULL`                                                               |
+| `phone`       | Regex            | Boundary checks; 10-15 digits; rejects repeated single-digit numbers |
+| `credit_card` | Regex            | Luhn checksum; 13-19 digits                                          |
+
+## Comparison
+
+Redactix is focused on lightweight, deterministic text redaction for common structured PII. It is intentionally smaller than full PII detection frameworks.
+
+| Library                | Difference                                                                                                                                                                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Redactix**           | Lightweight Rust-backed Python library with a simple API, built-in regex/validator detectors, custom regex detectors, and deterministic overlap resolution.                                                                                           |
+| **Microsoft Presidio** | Much broader framework: NLP, regex, checksums, context-aware recognizers, multilingual support, text/images/structured data, Docker/PySpark/K8s options. More powerful but heavier. Source: [Presidio README](https://github.com/microsoft/presidio). |
+| **scrubadub**          | Python free-text scrubber with more built-in PII types: names, addresses, DOBs, URLs, credentials, SSNs, tax IDs, etc., plus optional/external detectors. Source: [scrubadub docs](https://scrubadub.readthedocs.io/en/stable/).                      |
 
 ## Installation
 
-Build and install the local extension with maturin:
+Install from PyPI:
+
+```bash
+pip install pyredactix
+```
+
+Import the package as:
+
+```python
+import redactix
+```
+
+For local development builds:
 
 ```bash
 uv run maturin develop
@@ -117,10 +149,15 @@ Overlapping matches are resolved deterministically:
 - If priority is equal, the longer match wins.
 - Remaining ties are resolved by source position and registration order.
 
+## Roadmap
+
+- Add more common PII detectors and localized PII patterns.
+- Add optional AI-powered NER detection for advanced use cases while keeping the core library lightweight.
+
 ## Contributing
 
-Development setup, test commands, and contribution guidance are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
+Development setup, test commands, and contribution guidance are documented in [CONTRIBUTING.md](https://github.com/RikidWai/Redactix/blob/main/CONTRIBUTING.md).
 
 ## License
 
-Redactix is distributed under the MIT License. See [LICENSE](LICENSE) for details.
+Redactix is distributed under the MIT License. See [LICENSE](https://github.com/RikidWai/Redactix/blob/main/LICENSE) for details.

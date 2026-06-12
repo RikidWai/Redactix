@@ -1,5 +1,5 @@
 [project]
-name = "redactix"
+name = "pyredactix"
 version = "0.1.0"
 description = "Rust-backed Python library for detecting and redacting common PII in text"
 readme = "README.md"
